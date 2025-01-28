@@ -1,0 +1,5 @@
+# fill the .env file with the correct values
+.env
+
+# fill the db.text file with the correct values
+db.text
