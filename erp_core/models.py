@@ -48,10 +48,16 @@ class Customer(models.Model):
         return f"{self.code} - {self.name}"
 
 class BaseModel(models.Model):
-    created_at = models.DateTimeField(auto_now_add=True)
-    modified_at = models.DateTimeField(auto_now=True)
-    created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="%(class)s_created")
-    modified_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="%(class)s_modified")
+    created_at = models.DateTimeField(default=timezone.now)
+    modified_at = models.DateTimeField(default=timezone.now)
+    created_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="%(class)s_created", null=True, blank=True)
+    modified_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name="%(class)s_modified", null=True, blank=True)
 
     class Meta:
         abstract = True 
+
+    def save(self, *args, **kwargs):
+        if not self.pk:  # New instance
+            self.created_at = timezone.now()
+        self.modified_at = timezone.now()
+        super().save(*args, **kwargs) 

@@ -41,7 +41,11 @@ INSTALLED_APPS = [
     'inventory',
     'rest_framework',
     'guardian',
+    'erp_core',
 ]
+
+# Custom User Model
+AUTH_USER_MODEL = 'erp_core.User'
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
@@ -142,3 +146,8 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Login URL configurations
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'home'
+LOGOUT_REDIRECT_URL = 'login'
