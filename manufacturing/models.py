@@ -1,5 +1,7 @@
 from django.db import models
 from django.contrib.postgres.fields import ArrayField
+from django.core.exceptions import ValidationError
+from inventory.models import RawMaterial
 
 class Customer(models.Model):
     id = models.AutoField(primary_key=True)
@@ -137,5 +139,5 @@ class MachineStatus(models.TextChoices):
 class MachineType(models.TextChoices):
     MILLING = 'MILLING', 'Milling Machine'
     LATHE = 'LATHE', 'Lathe Machine'
-    DRILL = 'DRILL', 'Drill Press' // TODO
+    DRILL = 'DRILL', 'Drill Press'  # TODO
     GRINDING = 'GRINDING', 'Grinding Machine'

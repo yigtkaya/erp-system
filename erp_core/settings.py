@@ -84,7 +84,7 @@ DATABASES = {
         'NAME': 'erp_prod',
         'USER': 'erp_admin',
         'PASSWORD': 'strongpassword',
-        'HOST': 'db',
+        'HOST': 'localhost',
         'PORT': '5432',
     }
 }
