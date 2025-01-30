@@ -9,7 +9,7 @@ class ProductType(models.TextChoices):
 
 class ComponentType(models.TextChoices):
     SEMI_PRODUCT = 'SEMI_PRODUCT', 'Semi Product'
-    MANUFACTURING_PROCESS = 'MANUFACTURING_PROCESS', 'Manufacturing Process'
+    MONTAGED_PRODUCT = 'MONTAGED_PRODUCT', 'Montaged Product'
     RAW_MATERIAL = 'RAW_MATERIAL', 'Raw Material'
 
 class MachineStatus(models.TextChoices):

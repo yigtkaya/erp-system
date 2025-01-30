@@ -39,15 +39,18 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'manufacturing',
     'inventory',
+    'sales',
     'rest_framework',
     'guardian',
     'erp_core',
+    'debug_toolbar',
 ]
 
 # Custom User Model
 AUTH_USER_MODEL = 'erp_core.User'
 
 MIDDLEWARE = [
+    'debug_toolbar.middleware.DebugToolbarMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -151,3 +154,26 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 LOGIN_URL = 'login'
 LOGIN_REDIRECT_URL = 'home'
 LOGOUT_REDIRECT_URL = 'login'
+
+# Debug Toolbar Configuration
+INTERNAL_IPS = [
+    '127.0.0.1',
+]
+
+# Database monitoring settings
+if DEBUG:
+    LOGGING = {
+        'version': 1,
+        'disable_existing_loggers': False,
+        'handlers': {
+            'console': {
+                'class': 'logging.StreamHandler',
+            },
+        },
+        'loggers': {
+            'django.db.backends': {
+                'handlers': ['console'],
+                'level': 'DEBUG',
+            },
+        },
+    }

@@ -3,6 +3,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
 from inventory.models import Product, RawMaterial
 from erp_core.models import BaseModel, User, Customer, ProductType, ComponentType, MachineStatus, WorkOrderStatus
+from sales.models import SalesOrderItem
 
 class MachineType(models.TextChoices):
     MILLING = 'MILLING', 'Milling Machine'
@@ -119,33 +120,6 @@ class BOMComponent(models.Model):
         else:
             return f"Process: {self.process_config.process.process_code}"
 
-class SalesOrder(BaseModel):
-    order_number = models.CharField(max_length=50, unique=True)
-    customer = models.ForeignKey(Customer, on_delete=models.PROTECT)
-    order_date = models.DateField(auto_now_add=True)
-    deadline_date = models.DateField()
-    approved_by = models.ForeignKey(User, on_delete=models.PROTECT, null=True, blank=True, related_name='approved_sales_orders')
-
-    def __str__(self):
-        return f"{self.order_number} - {self.customer.name}"
-
-class SalesOrderItem(models.Model):
-    sales_order = models.ForeignKey(SalesOrder, on_delete=models.CASCADE, related_name='items')
-    product = models.ForeignKey(Product, on_delete=models.PROTECT)
-    quantity = models.IntegerField()
-    fulfilled_quantity = models.IntegerField(default=0)
-
-    def clean(self):
-        if self.fulfilled_quantity > self.quantity:
-            raise ValidationError("Fulfilled quantity cannot exceed ordered quantity")
-
-    def save(self, *args, **kwargs):
-        self.clean()
-        super().save(*args, **kwargs)
-
-    def __str__(self):
-        return f"{self.sales_order.order_number} - {self.product.product_code}"
-
 class WorkOrder(BaseModel):
     order_number = models.CharField(max_length=50, unique=True)
     sales_order_item = models.ForeignKey(SalesOrderItem, on_delete=models.PROTECT)
@@ -156,11 +130,13 @@ class WorkOrder(BaseModel):
     actual_start = models.DateField(null=True, blank=True)
     actual_end = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.PLANNED)
+    priority = models.IntegerField(default=1)  # 1 is highest priority
+    notes = models.TextField(blank=True, null=True)
 
     def __str__(self):
         return f"{self.order_number} - {self.bom.product.product_code}"
 
-class SubWorkOrder(models.Model):
+class SubWorkOrder(BaseModel):
     parent_work_order = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name='sub_orders')
     bom_component = models.ForeignKey(BOMComponent, on_delete=models.PROTECT)
     quantity = models.IntegerField()
@@ -169,6 +145,17 @@ class SubWorkOrder(models.Model):
     actual_start = models.DateField(null=True, blank=True)
     actual_end = models.DateField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.PLANNED)
+    output_quantity = models.IntegerField(null=True, blank=True)
+    scrap_quantity = models.IntegerField(default=0)
+    target_category = models.ForeignKey('inventory.InventoryCategory', on_delete=models.PROTECT, null=True, blank=True)
+    notes = models.TextField(blank=True, null=True)
+
+    def clean(self):
+        if self.output_quantity and self.output_quantity + self.scrap_quantity > self.quantity:
+            raise ValidationError("Output quantity plus scrap cannot exceed input quantity")
+        
+        if self.status == WorkOrderStatus.COMPLETED and not self.output_quantity:
+            raise ValidationError("Output quantity must be set when completing a work order")
 
     def __str__(self):
         return f"{self.parent_work_order.order_number} - {self.bom_component}"
@@ -193,4 +180,55 @@ class SubWorkOrderProcess(models.Model):
         return f"{self.sub_work_order} - {self.process.process_code}"
 
     class Meta:
-        ordering = ['sequence_order'] 
+        ordering = ['sequence_order']
+
+class WorkOrderOutput(BaseModel):
+    """
+    Records the output of work orders and manages inventory categorization
+    """
+    OUTPUT_STATUS = [
+        ('GOOD', 'Good Quality'),
+        ('REWORK', 'Needs Rework'),
+        ('SCRAP', 'Scrap')
+    ]
+
+    sub_work_order = models.ForeignKey(SubWorkOrder, on_delete=models.PROTECT, related_name='outputs')
+    quantity = models.IntegerField()
+    status = models.CharField(max_length=20, choices=OUTPUT_STATUS)
+    target_category = models.ForeignKey('inventory.InventoryCategory', on_delete=models.PROTECT)
+    notes = models.TextField(blank=True, null=True)
+
+    def clean(self):
+        # Validate target category based on output status
+        if self.status == 'GOOD' and self.target_category.name not in ['MAMUL', 'PROSES']:
+            raise ValidationError("Good quality items must go to Mamul or Proses")
+        elif self.status == 'REWORK' and self.target_category.name != 'KARANTINA':
+            raise ValidationError("Items needing rework must go to Karantina")
+        elif self.status == 'SCRAP' and self.target_category.name != 'HURDA':
+            raise ValidationError("Scrap items must go to Hurda")
+
+        # Validate total output doesn't exceed sub work order quantity
+        total_output = WorkOrderOutput.objects.filter(sub_work_order=self.sub_work_order).exclude(pk=self.pk).aggregate(
+            total=models.Sum('quantity'))['total'] or 0
+        if total_output + self.quantity > self.sub_work_order.quantity:
+            raise ValidationError("Total output quantity cannot exceed work order quantity")
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+        
+        # Update sub work order quantities
+        if self.status == 'SCRAP':
+            self.sub_work_order.scrap_quantity = WorkOrderOutput.objects.filter(
+                sub_work_order=self.sub_work_order,
+                status='SCRAP'
+            ).aggregate(total=models.Sum('quantity'))['total'] or 0
+        
+        self.sub_work_order.output_quantity = WorkOrderOutput.objects.filter(
+            sub_work_order=self.sub_work_order
+        ).aggregate(total=models.Sum('quantity'))['total'] or 0
+        
+        self.sub_work_order.save()
+
+    def __str__(self):
+        return f"{self.sub_work_order} - {self.quantity} units - {self.status}" 
