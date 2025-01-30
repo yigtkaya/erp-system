@@ -17,18 +17,36 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from django.contrib.auth import views as auth_views
-from . import views
+from rest_framework_simplejwt.views import TokenRefreshView
+from erp_core.views.auth import (
+    UserRegistrationView, UserListView, UserProfileView,
+    CustomTokenObtainPairView, logout_view
+)
+from erp_core.views.home import home
 from django.conf import settings
 
 urlpatterns = [
-    path('', views.home, name='home'),
+    path('', home, name='home'),
     path('admin/', admin.site.urls),
-    path('login/', auth_views.LoginView.as_view(template_name='erp_core/login.html'), name='login'),
-    path('logout/', auth_views.LogoutView.as_view(next_page='login'), name='logout'),
-    path('accounts/', include('django.contrib.auth.urls')),
+    
+    # Authentication URLs
+    path('auth/register/', UserRegistrationView.as_view(), name='register'),
+    path('auth/login/', CustomTokenObtainPairView.as_view(), name='login'),
+    path('auth/logout/', logout_view, name='logout'),
+    path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    
+    # User Management URLs
+    path('users/', UserListView.as_view(), name='user_list'),
+    path('users/profile/', UserProfileView.as_view(), name='profile'),
+    
+    # Include other app URLs
+    path('inventory/', include('inventory.urls')),
+    path('sales/', include('sales.urls')),
+    path('manufacturing/', include('manufacturing.urls')),
 ]
 
 if settings.DEBUG:
-    urlpatterns += [
-        path('__debug__/', include('debug_toolbar.urls')),
-    ]
+    import debug_toolbar
+    urlpatterns = [
+        path('__debug__/', include(debug_toolbar.urls)),
+    ] + urlpatterns

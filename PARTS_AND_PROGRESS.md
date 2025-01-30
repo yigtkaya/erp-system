@@ -5,7 +5,7 @@
 - [x] Project initialization
 
   - [x] Set up Django project structure
-  - [ ] Configure PostgreSQL database
+  - [x] Configure PostgreSQL database
   - [x] Set up development environment
   - [x] Initialize Git repository
 

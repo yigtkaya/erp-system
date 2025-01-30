@@ -1,6 +1,7 @@
 Django>=5.1.5
 psycopg2-binary>=2.9.9
 djangorestframework>=3.14.0
+djangorestframework-simplejwt>=5.3.1
 django-guardian>=2.4.0
 python-dotenv>=1.0.0
 redis>=5.0.1
