@@ -15,7 +15,7 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
 from django.contrib.auth import views as auth_views
 from rest_framework_simplejwt.views import TokenRefreshView
 from erp_core.views.auth import (
@@ -24,10 +24,46 @@ from erp_core.views.auth import (
 )
 from erp_core.views.home import home
 from django.conf import settings
+from django.conf.urls.static import static
+
+# Swagger imports
+from rest_framework import permissions
+from drf_yasg.views import get_schema_view
+from drf_yasg import openapi
+from drf_yasg.generators import OpenAPISchemaGenerator
+
+class CustomSchemaGenerator(OpenAPISchemaGenerator):
+    def get_operation_id(self, operation_keys):
+        operation_id = operation_keys[-1]
+        if operation_id.endswith('_create'):
+            operation_id = operation_id[:-7]
+        elif operation_id.endswith('_list'):
+            operation_id = 'list_' + operation_id[:-5]
+        return operation_id
+
+# Swagger Schema Configuration
+schema_view = get_schema_view(
+    openapi.Info(
+        title="ERP System API",
+        default_version='v1',
+        description="API documentation for ERP System",
+        terms_of_service="https://www.yourapp.com/terms/",
+        contact=openapi.Contact(email="contact@yourapp.com"),
+        license=openapi.License(name="Your License"),
+    ),
+    public=True,
+    permission_classes=(permissions.AllowAny,),
+    generator_class=CustomSchemaGenerator,
+)
 
 urlpatterns = [
     path('', home, name='home'),
     path('admin/', admin.site.urls),
+    
+    # Swagger URLs
+    re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
+    path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
+    path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
     
     # Authentication URLs
     path('auth/register/', UserRegistrationView.as_view(), name='register'),
@@ -49,4 +85,4 @@ if settings.DEBUG:
     import debug_toolbar
     urlpatterns = [
         path('__debug__/', include(debug_toolbar.urls)),
-    ] + urlpatterns
+    ] + urlpatterns + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
