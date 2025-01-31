@@ -16,6 +16,7 @@ from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
 from erp_core.models import User, UserProfile, Department, RolePermission
+from erp_core.serializers import CustomTokenObtainPairSerializer
 from erp_core.forms import UserRegistrationForm, UserProfileForm
 from erp_core.permissions import IsAdminUser, HasDepartmentPermission
 
@@ -144,16 +145,17 @@ class UserProfileView(LoginRequiredMixin, UpdateView):
         return self.request.user.profile
 
 class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
+    
     @swagger_auto_schema(
-        operation_description="Takes a set of user credentials and returns an access and refresh JSON web token pair to prove the authentication of those credentials.",
         responses={
-            status.HTTP_200_OK: openapi.Response(
+            200: openapi.Response(
                 description="Successful login",
                 schema=openapi.Schema(
                     type=openapi.TYPE_OBJECT,
                     properties={
-                        'access': openapi.Schema(type=openapi.TYPE_STRING, description='JWT access token'),
-                        'refresh': openapi.Schema(type=openapi.TYPE_STRING, description='JWT refresh token'),
+                        'access': openapi.Schema(type=openapi.TYPE_STRING),
+                        'refresh': openapi.Schema(type=openapi.TYPE_STRING),
                         'user': openapi.Schema(
                             type=openapi.TYPE_OBJECT,
                             properties={
@@ -161,13 +163,15 @@ class CustomTokenObtainPairView(TokenObtainPairView):
                                 'username': openapi.Schema(type=openapi.TYPE_STRING),
                                 'email': openapi.Schema(type=openapi.TYPE_STRING),
                                 'role': openapi.Schema(type=openapi.TYPE_STRING),
-                                'departments': openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_INTEGER))
+                                'departments': openapi.Schema(
+                                    type=openapi.TYPE_ARRAY,
+                                    items=openapi.Schema(type=openapi.TYPE_INTEGER)
+                                )
                             }
                         )
                     }
                 )
-            ),
-            status.HTTP_401_UNAUTHORIZED: 'Invalid credentials'
+            )
         }
     )
     def post(self, request, *args, **kwargs):

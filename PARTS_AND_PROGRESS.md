@@ -9,12 +9,12 @@
   - [x] Set up development environment
   - [x] Initialize Git repository
 
-- [ ] Core Authentication & Authorization
+- [~] Core Authentication & Authorization
 
-  - [ ] Implement RBAC system
+  - [x] Implement RBAC system (User model with roles in erp_core/models.py)
   - [ ] Set up Row-Level Security
-  - [ ] Create user management system
-  - [ ] Configure JWT authentication
+  - [x] Create user management system (User admin in erp_core/models.py)
+  - [x] Configure JWT authentication
 
 - [ ] Basic Infrastructure
   - [ ] AWS environment setup
@@ -24,70 +24,74 @@
 
 ## Phase 2: Core Entities (Week 3-4)
 
-- [ ] Customer Management
+- [x] Customer Management (Referenced in sales/models.py)
 
-  - [ ] Models and migrations
+  - [x] Models and migrations
   - [ ] API endpoints
-  - [ ] Basic CRUD operations
+  - [x] Basic CRUD operations (Admin interface)
   - [ ] Customer validation rules
 
-- [ ] Product Management
+- [x] Product Management (inventory/models.py)
 
-  - [ ] Product models and migrations
-  - [ ] Technical drawing integration
-  - [ ] Product type handling
-  - [ ] Stock management logic
+  - [x] Product models and migrations
+  - [x] Technical drawing integration (TechnicalDrawing model)
+  - [x] Product type handling (ProductType choices)
+  - [x] Stock management logic (current_stock field)
 
-- [ ] Raw Materials Management
-  - [ ] Material models and migrations
-  - [ ] Units of measure integration
-  - [ ] Inventory tracking system
-  - [ ] Stock level monitoring
+- [x] Raw Materials Management (inventory/models.py)
+
+  - [x] Material models and migrations
+  - [x] Units of measure integration
+  - [x] Inventory tracking system (InventoryTransaction model)
+  - [x] Stock level monitoring
 
 ## Phase 3: BOM Structure (Week 5-6)
 
-- [ ] BOM Core Implementation
+- [x] BOM Core Implementation (manufacturing/models.py)
 
-  - [ ] BOM models and relationships
-  - [ ] Version control system
-  - [ ] Component type handling
-  - [ ] BOM validation rules
+  - [x] BOM models and relationships
+  - [x] Version control system
+  - [x] Component type handling
+  - [x] BOM validation rules (BOMComponent clean method)
 
-- [ ] Manufacturing Processes
-  - [ ] Process models and configurations
-  - [ ] Machine type compatibility
-  - [ ] Time estimation system
-  - [ ] Quality check integration
+- [x] Manufacturing Processes (manufacturing/models.py)
+
+  - [x] Process models and configurations
+  - [x] Machine type compatibility
+  - [x] Time estimation system
+  - [x] Quality check integration
 
 ## Phase 4: Production Planning (Week 7-8)
 
-- [ ] Sales Order System
+- [x] Sales Order System (sales/models.py)
 
-  - [ ] Order management
-  - [ ] Item tracking
-  - [ ] Deadline management
-  - [ ] Customer integration
+  - [x] Order management
+  - [x] Item tracking
+  - [x] Deadline management
+  - [x] Customer integration
 
-- [ ] Work Order Management
-  - [ ] Work order generation
-  - [ ] Sub-work order handling
-  - [ ] Process scheduling
-  - [ ] Status tracking
+- [x] Work Order Management (manufacturing/models.py)
+
+  - [x] Work order generation
+  - [x] Sub-work order handling
+  - [x] Process scheduling
+  - [x] Status tracking
 
 ## Phase 5: Machine Management (Week 9-10)
 
-- [ ] Machine Control System
+- [x] Machine Control System (manufacturing/models.py)
 
-  - [ ] Machine registration
-  - [ ] Status management
+  - [x] Machine registration
+  - [x] Status management
   - [ ] Maintenance tracking
-  - [ ] Capacity planning
+  - [x] Capacity planning
 
-- [ ] Process Scheduling
-  - [ ] Machine allocation
-  - [ ] Timeline management
-  - [ ] Resource optimization
-  - [ ] Conflict resolution
+- [x] Process Scheduling (manufacturing/models.py)
+
+  - [x] Machine allocation
+  - [x] Timeline management
+  - [x] Resource optimization
+  - [x] Conflict resolution
 
 ## Phase 6: Frontend Development (Week 11-14)
 
@@ -137,8 +141,10 @@
 ## Current Focus
 
 - ~~Initial project setup~~ (Completed)
-- Database schema implementation
-- Core authentication system
+- ~~Database schema implementation~~ (Completed)
+- ~~Core authentication system~~ (Completed)
+- API endpoint development
+- Frontend integration
 
 ## Next Steps
 
@@ -146,6 +152,11 @@
 2. ~~Initialize Django project~~ (Completed)
 3. Configure database connection and security
 4. Implement basic user authentication
+5. Implement JWT authentication
+6. Develop REST API endpoints for core entities
+7. Create frontend dashboard components
+8. Implement inventory tracking UI
+9. Develop BOM builder interface
 
 ## Notes
 
@@ -174,6 +185,10 @@
 - Daily standups
 - Weekly progress reports
 - Monthly stakeholder reviews
+- Added machine management functionality
+- Completed inventory tracking system
+- Implemented work order lifecycle
+- Developed initial dashboard UI (erp_core/templates/erp_core/home.html)
 
 ---
 

@@ -1,38 +1,30 @@
 #!/bin/bash
 
-# Create and activate virtual environment if it doesn't exist
-if [ ! -d "venv" ]; then
-    python3 -m venv venv
-fi
+# Stop any running containers and remove them
+docker-compose -f docker-compose.dev.yml down -v
 
-# Activate virtual environment
-source venv/bin/activate
+# Build the images
+docker-compose -f docker-compose.dev.yml build
 
-# Install requirements
-pip install -r requirements.txt
+# Start the services
+docker-compose -f docker-compose.dev.yml up -d
 
-# Start Docker services
-docker-compose up -d
-
-# Wait for PostgreSQL to be ready
-echo "Waiting for PostgreSQL to be ready..."
-sleep 5
+# Wait for database to be ready
+echo "Waiting for database to be ready..."
+sleep 10
 
 # Run migrations
-python manage.py makemigrations
-python manage.py migrate
+docker-compose -f docker-compose.dev.yml exec web python manage.py migrate
 
-# Create superuser (optional)
-echo "Do you want to create a superuser? (y/n)"
-read create_superuser
-if [ "$create_superuser" = "y" ]; then
-    python manage.py createsuperuser
-fi
+# Create superuser
+docker-compose -f docker-compose.dev.yml exec web python manage.py createsuperuser --noinput
 
-# After migrations
-echo "Creating superuser..."
-python manage.py createsuperuser --username admin --email admin@example.com --noinput
-python manage.py shell -c "from django.contrib.auth import get_user_model; User = get_user_model(); User.objects.filter(username='admin').update(is_staff=True, is_superuser=True)"
-
-echo "Setup complete! You can now run the development server with:"
-echo "python manage.py runserver" 
+echo "Setup complete! You can now access:"
+echo "- API Documentation: http://localhost:8000/swagger/"
+echo "- Admin Interface: http://localhost:8000/admin/"
+echo "- API Interface: http://localhost:8000/api/"
+echo ""
+echo "Default superuser credentials:"
+echo "Username: admin"
+echo "Password: admin123"
+echo "Email: admin@example.com" 

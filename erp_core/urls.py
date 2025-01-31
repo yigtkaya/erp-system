@@ -24,7 +24,7 @@ from rest_framework_simplejwt.views import (
 )
 from erp_core.views.auth import (
     UserRegistrationView, UserListView, UserProfileView,
-    CustomTokenObtainPairView, logout_view
+    logout_view, CustomTokenObtainPairView
 )
 from erp_core.views.home import home
 from django.conf import settings
@@ -37,15 +37,14 @@ from drf_yasg import openapi
 from drf_yasg.generators import OpenAPISchemaGenerator
 from .serializers import CustomTokenObtainPairSerializer
 from rest_framework.throttling import AnonRateThrottle
+from rest_framework.routers import DefaultRouter
+from erp_core.views.customer import CustomerViewSet
 
-class CustomSchemaGenerator(OpenAPISchemaGenerator):
-    def get_operation_id(self, operation_keys):
-        operation_id = operation_keys[-1]
-        if operation_id.endswith('_create'):
-            operation_id = operation_id[:-7]
-        elif operation_id.endswith('_list'):
-            operation_id = 'list_' + operation_id[:-5]
-        return operation_id
+class BothHttpAndHttpsSchemaGenerator(OpenAPISchemaGenerator):
+    def get_schema(self, request=None, public=False):
+        schema = super().get_schema(request, public)
+        schema.schemes = ["http", "https"]
+        return schema
 
 # Swagger Schema Configuration
 schema_view = get_schema_view(
@@ -53,15 +52,22 @@ schema_view = get_schema_view(
         title="ERP System API",
         default_version='v1',
         description="Manufacturing and Sales API Documentation",
+        terms_of_service="https://www.google.com/policies/terms/",
+        contact=openapi.Contact(email="contact@erp-system.local"),
+        license=openapi.License(name="BSD License"),
     ),
     public=True,
+    permission_classes=(permissions.AllowAny,),
+    generator_class=BothHttpAndHttpsSchemaGenerator,
 )
 
 class LoginThrottle(AnonRateThrottle):
     rate = '5/hour'
 
-class CustomTokenObtainPairView(TokenObtainPairView):
-    throttle_classes = [LoginThrottle]
+
+# Update router configuration
+router = DefaultRouter()
+router.register(r'customers', CustomerViewSet)
 
 urlpatterns = [
     path('', home, name='home'),
@@ -88,6 +94,7 @@ urlpatterns = [
     path('api/inventory/', include('inventory.urls')),
     path('api/manufacturing/', include('manufacturing.urls')),
     path('api/sales/', include('sales.urls')),
+    path('api/', include(router.urls)),
 ]
 
 if settings.DEBUG:

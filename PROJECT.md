@@ -8,6 +8,24 @@ This system is designed to handle end-to-end manufacturing operations, from cust
 
 ## Core Features
 
+#### JWT Implementation Status (Completed)
+
+- Token-based authentication using Simple JWT
+- Custom token claims including:
+  - User role (from erp_core/models.py lines 56-70)
+  - Department memberships
+  - Fine-grained permissions
+- Token rotation and blacklisting
+- Integrated with Django's RBAC system
+
+#### Security Features
+
+- 15-minute access token lifetime
+- 1-day refresh token lifetime
+- HS256 signing algorithm
+- Bearer token authentication
+- Automatic token blacklisting after rotation
+
 ### 1. Product Management
 
 - Support for different product types (Montaged, Semi, Single)

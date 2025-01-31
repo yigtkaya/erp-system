@@ -3,6 +3,7 @@ from django.contrib.auth.models import AbstractUser, Permission
 from django.utils import timezone
 from django.contrib.contenttypes.models import ContentType
 from django.db.models import Q
+from django.core.exceptions import ValidationError
 
 class ProductType(models.TextChoices):
     MONTAGED = 'MONTAGED', 'Montaged'
@@ -60,13 +61,6 @@ class User(AbstractUser):
             Q(user=self)
         ).distinct()
 
-class Customer(models.Model):
-    code = models.CharField(max_length=20, unique=True)
-    name = models.CharField(max_length=100)
-
-    def __str__(self):
-        return f"{self.code} - {self.name}"
-
 class BaseModel(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     modified_at = models.DateTimeField(default=timezone.now)
@@ -80,7 +74,25 @@ class BaseModel(models.Model):
         if not self.pk:  # New instance
             self.created_at = timezone.now()
         self.modified_at = timezone.now()
-        super().save(*args, **kwargs) 
+        super().save(*args, **kwargs)
+
+class Customer(BaseModel):
+    code = models.CharField(max_length=20, unique=True)
+    name = models.CharField(max_length=100)
+
+    def clean(self):
+        if not self.code.isalnum():
+            raise ValidationError("Customer code must contain only letters and numbers")
+        
+        if len(self.code) < 4:
+            raise ValidationError("Customer code must be at least 4 characters")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.code} - {self.name}"
 
 class Department(models.Model):
     name = models.CharField(max_length=100)
