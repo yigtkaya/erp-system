@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError
 from inventory.models import Product, RawMaterial
 from erp_core.models import BaseModel, User, Customer, ProductType, ComponentType, MachineStatus, WorkOrderStatus
 from sales.models import SalesOrderItem
+from datetime import datetime, timedelta
 
 class MachineType(models.TextChoices):
     MILLING = 'MILLING', 'Milling Machine'
@@ -32,9 +33,21 @@ class Machine(BaseModel):
     max_part_size = models.CharField(max_length=50, blank=True, null=True)
     description = models.TextField(blank=True, null=True)
     status = models.CharField(max_length=20, choices=MachineStatus.choices, default=MachineStatus.AVAILABLE)
+    maintenance_interval = models.IntegerField(
+        help_text="Days between required maintenance",
+        default=90
+    )
+    last_maintenance_date = models.DateField(null=True, blank=True)
+    next_maintenance_date = models.DateField(null=True, blank=True)
+    maintenance_notes = models.TextField(blank=True, null=True)
 
     def __str__(self):
         return f"{self.machine_code} - {self.machine_type}"
+
+    def calculate_next_maintenance(self):
+        if self.last_maintenance_date:
+            self.next_maintenance_date = self.last_maintenance_date + timedelta(days=self.maintenance_interval)
+            self.save()
 
 class ManufacturingProcess(BaseModel):
     process_code = models.CharField(max_length=50, unique=True)

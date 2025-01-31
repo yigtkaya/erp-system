@@ -1,13 +1,16 @@
+.PHONY: dev_up dev_down dev_migrate dev_superuser
+
+dev_up:
+	docker-compose -f docker-compose.dev.yml down -v && \
+	docker-compose -f docker-compose.dev.yml up --build
 
 
-# Start fresh development environment
-docker-compose -f docker-compose.dev.yml down -v && \
-docker-compose -f docker-compose.dev.yml up --build
+dev_down:
+	docker-compose -f docker-compose.dev.yml down -v
 
-# Or without Docker:
-python3 -m venv venv
-source venv/bin/activate
-pip3 install -r requirements.txt
-python3 manage.py migrate
-python3 manage.py createsuperuser
-python3 manage.py runserver
+dev_migrate:
+	docker-compose -f docker-compose.dev.yml exec web python manage.py migrate
+
+dev_superuser:
+	docker-compose -f docker-compose.dev.yml exec web python manage.py createsuperuser
+

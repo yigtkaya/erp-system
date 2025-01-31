@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     'inventory',
     'sales',
     'purchase',  # Add this line
+    'maintenance',  # Add this line
     'rest_framework',
     'guardian',
     'erp_core',

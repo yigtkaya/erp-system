@@ -28,7 +28,7 @@ This system is designed to handle end-to-end manufacturing operations, from cust
 
 ### 1. Product Management
 
-- Support for different product types (Montaged, Semi, Single)
+- Support for different product types (Montaged, Semi, Single, Standard Part)
 - Technical drawings version control
 - Customer-specific product catalogs
 - Detailed product specifications and inventory tracking
