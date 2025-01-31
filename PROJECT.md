@@ -64,6 +64,20 @@ This system is designed to handle end-to-end manufacturing operations, from cust
 - Process-machine compatibility
 - Machine capacity planning
 
+### 6. Quality Management (New)
+
+- Document control system (Support, Manuals, Procedures)
+- Quality checklists and forms
+- Calibration tracking for equipment
+- Non-conformance reporting
+- Audit trail integration
+- Statistical process control (SPC)
+- Integration points:
+  - Manufacturing processes
+  - Work order completion
+  - Machine maintenance
+  - Inventory receiving
+
 ## Technical Stack
 
 ### Backend
@@ -120,10 +134,17 @@ The database is structured around several key areas:
    - Manufacturing Processes
 
 5. **Sales & Production**
+
    - Sales Orders
    - Work Orders
    - Sub Work Orders
    - Process Scheduling
+
+6. **Quality Control**
+   - Quality Documents
+   - Checklists
+   - Calibration Records
+   - Form Responses
 
 ## Getting Started
 
