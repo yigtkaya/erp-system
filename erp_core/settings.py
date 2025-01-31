@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'manufacturing',
     'inventory',
     'sales',
+    'purchase',  # Add this line
     'rest_framework',
     'guardian',
     'erp_core',

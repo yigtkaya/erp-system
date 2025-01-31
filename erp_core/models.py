@@ -9,12 +9,14 @@ class ProductType(models.TextChoices):
     MONTAGED = 'MONTAGED', 'Montaged'
     SEMI = 'SEMI', 'Semi'
     SINGLE = 'SINGLE', 'Single'
+    STANDARD_PART = 'STANDARD_PART', 'Standard Part'  # Added
 
 class ComponentType(models.TextChoices):
     SEMI_PRODUCT = 'SEMI_PRODUCT', 'Semi Product'
     MONTAGED_PRODUCT = 'MONTAGED_PRODUCT', 'Montaged Product'
     RAW_MATERIAL = 'RAW_MATERIAL', 'Raw Material'
-
+    STANDARD_PART = 'STANDARD_PART', 'Standard Part'  # Added
+    
 class MachineStatus(models.TextChoices):
     AVAILABLE = 'AVAILABLE', 'Available'
     IN_USE = 'IN_USE', 'In Use'

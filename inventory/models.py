@@ -58,7 +58,9 @@ class Product(BaseModel):
             raise ValidationError("Semi-finished products can only be in Proses, Mamul, Karantina, or Hurda categories")
         elif self.product_type == ProductType.MONTAGED and self.inventory_category.name not in ['MAMUL', 'KARANTINA', 'HURDA']:
             raise ValidationError("Montaged products can only be in Mamul, Karantina, or Hurda categories")
-
+        elif self.product_type == ProductType.STANDARD_PART and self.inventory_category.name not in ['HAMMADDE', 'HURDA', 'KARANTINA']:
+            raise ValidationError("Standard parts can only be in Hammadde, Hurda, or Karantina categories")
+    
     def __str__(self):
         return f"{self.product_code} - {self.product_name}"
 

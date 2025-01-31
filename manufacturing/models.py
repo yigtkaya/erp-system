@@ -79,9 +79,29 @@ class BOM(BaseModel):
 class BOMComponent(models.Model):
     bom = models.ForeignKey(BOM, on_delete=models.CASCADE, related_name='components')
     component_type = models.CharField(max_length=30, choices=ComponentType.choices)
-    semi_product = models.ForeignKey(Product, on_delete=models.PROTECT, null=True, blank=True)
-    raw_material = models.ForeignKey(RawMaterial, on_delete=models.PROTECT, null=True, blank=True)
+    semi_product = models.ForeignKey(
+        Product,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='semi_components'
+    )
+    raw_material = models.ForeignKey(
+        RawMaterial,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='material_components'
+    )
     process_config = models.ForeignKey(BOMProcessConfig, on_delete=models.PROTECT, null=True, blank=True)
+    standard_part = models.ForeignKey(
+        Product,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='standard_components',
+        limit_choices_to={'product_type': ProductType.STANDARD_PART}
+    )
     quantity = models.DecimalField(max_digits=10, decimal_places=2)
     sequence_order = models.IntegerField()
 
@@ -95,8 +115,14 @@ class BOMComponent(models.Model):
         fields = [
             (self.semi_product, ComponentType.SEMI_PRODUCT),
             (self.raw_material, ComponentType.RAW_MATERIAL),
-            (self.process_config, ComponentType.MANUFACTURING_PROCESS)
+            (self.process_config, ComponentType.MANUFACTURING_PROCESS),
+            (self.standard_part, ComponentType.STANDARD_PART),
+
         ]
+
+        if self.component_type == ComponentType.STANDARD_PART:
+            if self.semi_product.product_type != ProductType.STANDARD_PART:
+                raise ValidationError("Standard Part components must reference Standard Part products")
         
         # Check if the set field matches the component type
         for field, expected_type in fields:
