@@ -3,8 +3,15 @@ from .models import Product, RawMaterial, InventoryTransaction, InventoryCategor
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ('product_code', 'product_name', 'current_stock', 'inventory_category', 'unit')
-    list_filter = ('inventory_category', 'unit', 'product_type')
+    list_display = [
+        'product_code', 
+        'product_name', 
+        'current_stock', 
+        'inventory_category'
+    ]
+    list_filter = [
+        'inventory_category'
+    ]
     search_fields = ('product_name', 'product_code', 'description')
     ordering = ('product_code',)
 

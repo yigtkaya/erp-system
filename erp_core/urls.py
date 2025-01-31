@@ -46,14 +46,9 @@ schema_view = get_schema_view(
     openapi.Info(
         title="ERP System API",
         default_version='v1',
-        description="API documentation for ERP System",
-        terms_of_service="https://www.yourapp.com/terms/",
-        contact=openapi.Contact(email="contact@yourapp.com"),
-        license=openapi.License(name="Your License"),
+        description="Manufacturing and Sales API Documentation",
     ),
     public=True,
-    permission_classes=(permissions.AllowAny,),
-    generator_class=CustomSchemaGenerator,
 )
 
 urlpatterns = [
@@ -76,9 +71,9 @@ urlpatterns = [
     path('users/profile/', UserProfileView.as_view(), name='profile'),
     
     # Include other app URLs
-    path('inventory/', include('inventory.urls')),
-    path('sales/', include('sales.urls')),
-    path('manufacturing/', include('manufacturing.urls')),
+    path('api/inventory/', include('inventory.urls')),
+    path('api/manufacturing/', include('manufacturing.urls')),
+    path('api/sales/', include('sales.urls')),
 ]
 
 if settings.DEBUG:

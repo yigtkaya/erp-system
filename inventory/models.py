@@ -41,7 +41,6 @@ class Product(BaseModel):
     description = models.TextField(blank=True, null=True)
     current_stock = models.IntegerField(default=0)
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, null=True, blank=True)
-    unit = models.ForeignKey(UnitOfMeasure, on_delete=models.PROTECT)
     inventory_category = models.ForeignKey(InventoryCategory, on_delete=models.PROTECT, null=True, blank=True)
 
     class Meta:
@@ -102,7 +101,7 @@ class RawMaterial(BaseModel):
     def __str__(self):
         return f"{self.material_code} - {self.material_name}"
 
-class InventoryTransaction(models.Model):
+class InventoryTransaction(BaseModel):
     TRANSACTION_TYPES = [
         ('IN', 'Stock In'),
         ('OUT', 'Stock Out'),
@@ -121,6 +120,7 @@ class InventoryTransaction(models.Model):
     notes = models.TextField(blank=True, null=True)
     from_category = models.ForeignKey(InventoryCategory, on_delete=models.PROTECT, related_name='transactions_from', null=True, blank=True)
     to_category = models.ForeignKey(InventoryCategory, on_delete=models.PROTECT, related_name='transactions_to', null=True, blank=True)
+    reference_id = models.CharField(max_length=50, null=True, blank=True)
 
     def clean(self):
         if not bool(self.product) != bool(self.material):
@@ -149,17 +149,25 @@ class InventoryTransaction(models.Model):
         super().save(*args, **kwargs)
         
         # Update stock levels and categories
-        if self.product:
-            if self.transaction_type == 'TRANSFER':
-                self.product.inventory_category = self.to_category
-            self.product.current_stock += self.quantity_change
-            self.product.save()
-        elif self.material:
-            if self.transaction_type == 'TRANSFER':
-                self.material.inventory_category = self.to_category
-            self.material.current_stock += self.quantity_change
-            self.material.save()
+        if self.transaction_type != 'RESERVATION':
+            if self.product:
+                if self.transaction_type == 'TRANSFER':
+                    self.product.inventory_category = self.to_category
+                self.product.current_stock += self.quantity_change
+                self.product.save()
+            elif self.material:
+                if self.transaction_type == 'TRANSFER':
+                    self.material.inventory_category = self.to_category
+                self.material.current_stock += self.quantity_change
+                self.material.save()
 
     def __str__(self):
         item = self.product or self.material
         return f"{self.transaction_type} - {item} - {self.quantity_change}"
+
+    class Meta:
+        verbose_name = "Inventory Transaction"
+        verbose_name_plural = "Inventory Transactions"
+        indexes = [
+            models.Index(fields=['reference_id', 'transaction_type']),
+        ]
