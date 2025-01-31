@@ -17,7 +17,11 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include, re_path
 from django.contrib.auth import views as auth_views
-from rest_framework_simplejwt.views import TokenRefreshView
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+    TokenVerifyView
+)
 from erp_core.views.auth import (
     UserRegistrationView, UserListView, UserProfileView,
     CustomTokenObtainPairView, logout_view
@@ -31,6 +35,8 @@ from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from drf_yasg.generators import OpenAPISchemaGenerator
+from .serializers import CustomTokenObtainPairSerializer
+from rest_framework.throttling import AnonRateThrottle
 
 class CustomSchemaGenerator(OpenAPISchemaGenerator):
     def get_operation_id(self, operation_keys):
@@ -51,6 +57,12 @@ schema_view = get_schema_view(
     public=True,
 )
 
+class LoginThrottle(AnonRateThrottle):
+    rate = '5/hour'
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    throttle_classes = [LoginThrottle]
+
 urlpatterns = [
     path('', home, name='home'),
     path('admin/', admin.site.urls),
@@ -64,7 +76,9 @@ urlpatterns = [
     path('auth/register/', UserRegistrationView.as_view(), name='register'),
     path('auth/login/', CustomTokenObtainPairView.as_view(), name='login'),
     path('auth/logout/', logout_view, name='logout'),
-    path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
+    path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/auth/verify/', TokenVerifyView.as_view(), name='token_verify'),
     
     # User Management URLs
     path('users/', UserListView.as_view(), name='user_list'),

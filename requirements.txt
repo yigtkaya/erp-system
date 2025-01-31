@@ -10,4 +10,11 @@ django-cors-headers>=4.3.1
 Pillow>=10.1.0
 django-filter>=23.5
 django-debug-toolbar>=4.3.0
-drf-yasg>=1.21.7 
+drf-yasg>=1.21.7
+# Security packages
+django-axes==6.0.0
+django-defender==0.9.8
+# Model utilities
+django-model-utils>=4.3.1
+# Redis integration
+django-redis>=5.2.0 

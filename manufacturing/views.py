@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
+from erp_core.throttling import CustomScopedRateThrottle
 
 from .models import (
     WorkOrder, BOM, Machine, ManufacturingProcess,
@@ -25,6 +26,8 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
     search_fields = ['order_number', 'notes']
     ordering_fields = ['planned_start', 'planned_end', 'priority']
     ordering = ['-planned_start']
+    throttle_scope = 'manufacturing'
+    throttle_classes = [CustomScopedRateThrottle]
 
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):

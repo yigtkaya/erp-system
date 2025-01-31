@@ -29,5 +29,10 @@ if [ "$create_superuser" = "y" ]; then
     python manage.py createsuperuser
 fi
 
+# After migrations
+echo "Creating superuser..."
+python manage.py createsuperuser --username admin --email admin@example.com --noinput
+python manage.py shell -c "from django.contrib.auth import get_user_model; User = get_user_model(); User.objects.filter(username='admin').update(is_staff=True, is_superuser=True)"
+
 echo "Setup complete! You can now run the development server with:"
 echo "python manage.py runserver" 
