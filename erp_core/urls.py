@@ -26,7 +26,7 @@ from erp_core.views.auth import (
     UserRegistrationView, UserListView, UserProfileView,
     logout_view, CustomTokenObtainPairView
 )
-from erp_core.views.home import home
+from erp_core.views.home import home, health_check
 from django.conf import settings
 from django.conf.urls.static import static
 
@@ -95,6 +95,7 @@ urlpatterns = [
     path('api/manufacturing/', include('manufacturing.urls')),
     path('api/sales/', include('sales.urls')),
     path('api/', include(router.urls)),
+    path('api/health/', health_check, name='health-check'),
 ]
 
 if settings.DEBUG:

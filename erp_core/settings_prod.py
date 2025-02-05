@@ -14,6 +14,9 @@ from pathlib import Path
 from datetime import timedelta
 from django.urls import path, include
 import os
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -100,10 +103,10 @@ WSGI_APPLICATION = 'erp_core.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': "os.getenv('DB_NAME', 'erp_dev')",
-        'USER': os.getenv('DB_USER', 'dev_user'),
-        'PASSWORD': os.getenv('DB_PASSWORD', 'dev_pass'),
-        'HOST': os.getenv('DB_HOST', 'db'),
+        'NAME': 'kapsammakina',
+        'USER': 'adminuser',
+        'PASSWORD': os.getenv('DB_PASSWORD', 'prod_pass'),
+        'HOST': 'localhost',
         'PORT': os.getenv('DB_PORT', '5432'),
         'OPTIONS': {
             'connect_timeout': 5,

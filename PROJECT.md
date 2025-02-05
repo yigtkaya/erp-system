@@ -219,10 +219,10 @@ The database is structured around several key areas:
 
 1. **AWS Infrastructure**
 
-   - Set up EC2 instance (t3.large or better recommended)
-   - Configure RDS PostgreSQL instance
-   - Create S3 bucket for file storage
-   - Set up Redis through ElastiCache
+   - Will use Digital Ocean App Platform for deployment
+   - Will use Digital Ocean Managed Databases for PostgreSQL
+   - Will use Digital Ocean Object Storage for file storage
+   - Will use Digital Ocean Load Balancers for the frontend and backend
 
 2. **CI/CD Pipeline**
 

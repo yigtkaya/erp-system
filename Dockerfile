@@ -1,31 +1,29 @@
+# Use the same base image
 FROM python:3.13-slim
 
 WORKDIR /app
 
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
-
-# Install system dependencies
+# Install system dependencies (keep build essentials for psycopg2)
 RUN apt-get update && apt-get install -y \
     gcc \
     python3-dev \
     libpq-dev \
-    libffi-dev \
-    openssl \
-    build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# Upgrade pip first
-RUN pip3 install --upgrade pip
+# Python environment
+ENV PYTHONDONTWRITEBYTECODE 1
+ENV PYTHONUNBUFFERED 1
+ENV DJANGO_SETTINGS_MODULE=erp_core.settings_prod
 
+# Install dependencies
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt gunicorn
 
+# Copy project
 COPY . .
 
-# Add this before CMD instruction
-ENV DJANGO_SUPERUSER_USERNAME=admin
-ENV DJANGO_SUPERUSER_PASSWORD=admin123
-ENV DJANGO_SUPERUSER_EMAIL=admin@example.com
+# Collect static files
+RUN python manage.py collectstatic --noinput
 
-CMD ["sh", "-c", "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"] 
+# Use gunicorn instead of runserver
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "3", "erp_core.wsgi:application"]
