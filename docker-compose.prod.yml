@@ -2,53 +2,61 @@ version: "3.8"
 
 services:
   web:
-    build: .
-    command: sh -c "python manage.py migrate && gunicorn --bind 0.0.0.0:8000 --workers 3 erp_core.wsgi:application"
-    env_file:
-      - .env.prod
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    env_file: .env.prod
+    command: gunicorn --config gunicorn.conf.py erp_core.wsgi:application
+    expose:
+      - 8000
     volumes:
-      - staticfiles:/app/staticfiles
-      - media:/app/media
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
     networks:
       - erp_network
     depends_on:
       - db
       - redis
 
+  db:
+    image: postgres:15
+    env_file: .env.prod
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - erp_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  redis:
+    image: redis:7
+    networks:
+      - erp_network
+    volumes:
+      - redisdata:/data
+
   nginx:
     image: nginx:1.25
-    volumes:
-      - ./config/nginx.conf:/etc/nginx/nginx.conf
-      - staticfiles:/app/staticfiles
-      - media:/app/media
     ports:
       - "80:80"
+      - "443:443"
+    volumes:
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+      - ./nginx.conf:/etc/nginx/nginx.conf
     networks:
       - erp_network
     depends_on:
       - web
 
-  db:
-    image: postgres:15
-    env_file:
-      - .env.prod
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - erp_network
-
-  redis:
-    image: redis:7
-    volumes:
-      - redis_data:/data
-    networks:
-      - erp_network
-
 volumes:
-  postgres_data:
-  redis_data:
-  staticfiles:
-  media:
+  pgdata:
+  redisdata:
+  static_volume:
+  media_volume:
 
 networks:
   erp_network:
