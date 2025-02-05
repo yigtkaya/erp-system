@@ -133,9 +133,42 @@ AUTHENTICATION_BACKENDS = [
 
 # CORS Settings
 CORS_ALLOW_ALL_ORIGINS = DEBUG  # Only allow all origins in debug mode
-CORS_ALLOWED_ORIGINS = os.getenv('CSRF_TRUSTED_ORIGINS', 'http://localhost:8000,http://127.0.0.1:8000').split(',')
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",  # React default port
+    "http://localhost:8000",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000",
+    "http://68.183.213.111",  # Your production server
+]
 CORS_ALLOW_CREDENTIALS = True
-CORS_ORIGIN_WHITELIST = CORS_ALLOWED_ORIGINS
+CORS_ALLOW_METHODS = [
+    'DELETE',
+    'GET',
+    'OPTIONS',
+    'PATCH',
+    'POST',
+    'PUT',
+]
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
+
+# Security Settings
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000",
+    "http://68.183.213.111",
+]
 
 # Swagger Settings
 SWAGGER_SETTINGS = {

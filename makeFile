@@ -15,3 +15,9 @@ dev_test:
 
 dev_superuser:
 	@docker-compose -f docker-compose.dev.yml exec web python manage.py createsuperuser
+
+## For manual backup:
+./backup.sh
+
+# To restore from a backup:
+./restore.sh /path/to/full_backup_YYYYMMDD_HHMMSS.tar.gz
