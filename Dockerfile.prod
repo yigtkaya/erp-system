@@ -40,6 +40,7 @@ WORKDIR $APP_HOME
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     libpq-dev \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy wheels from builder and install
