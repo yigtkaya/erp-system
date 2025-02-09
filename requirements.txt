@@ -1,23 +1,13 @@
-Django>=5.1.5
-psycopg2-binary>=2.9.9
-djangorestframework>=3.14.0
-djangorestframework-simplejwt==5.3.1
-django-guardian>=2.4.0
-python-dotenv>=1.0.0
-redis>=5.0.1
-celery>=5.3.6
-django-cors-headers>=4.3.1
-Pillow>=10.1.0
-django-filter>=23.5
-django-debug-toolbar>=4.3.0
-drf-yasg>=1.21.7
-# Security packages
-django-axes==6.0.0
-django-defender==0.9.8
-# Model utilities
-django-model-utils>=4.3.1
-# Redis integration
-django-redis>=5.2.0
-# WSGI server
-gunicorn>=21.2.0
-gevent>=23.9.1 
+Django==5.1.5
+djangorestframework==3.14.0
+django-cors-headers==4.3.1
+django-debug-toolbar==4.3.0
+django-guardian==2.4.0
+drf-yasg==1.21.7
+psycopg2-binary==2.9.9
+gunicorn==21.2.0
+whitenoise==6.6.0
+django-redis==5.4.0
+django-axes==6.3.0
+django-defender==0.9.7
+Pillow==10.2.0 

@@ -23,14 +23,13 @@ from rest_framework_simplejwt.views import (
     TokenVerifyView
 )
 from erp_core.views.auth import (
+    login_view, logout_view, check_session,
     UserRegistrationView, UserListView, UserProfileView,
-    logout_view, CustomTokenObtainPairView
 )
 from erp_core.views.home import home, health_check
 from django.conf import settings
 from django.conf.urls.static import static
-
-# Swagger imports
+from django.views.generic import TemplateView
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
@@ -39,6 +38,8 @@ from .serializers import CustomTokenObtainPairSerializer
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.routers import DefaultRouter
 from erp_core.views.customer import CustomerViewSet
+from .views.product import ProductViewSet
+from .views.order import OrderViewSet
 
 class BothHttpAndHttpsSchemaGenerator(OpenAPISchemaGenerator):
     def get_schema(self, request=None, public=False):
@@ -49,16 +50,15 @@ class BothHttpAndHttpsSchemaGenerator(OpenAPISchemaGenerator):
 # Swagger Schema Configuration
 schema_view = get_schema_view(
     openapi.Info(
-        title="ERP System API",
+        title="ERP API",
         default_version='v1',
-        description="Manufacturing and Sales API Documentation",
+        description="API documentation for ERP System",
         terms_of_service="https://www.google.com/policies/terms/",
-        contact=openapi.Contact(email="contact@erp-system.local"),
+        contact=openapi.Contact(email="contact@erp.local"),
         license=openapi.License(name="BSD License"),
     ),
     public=True,
     permission_classes=(permissions.AllowAny,),
-    generator_class=BothHttpAndHttpsSchemaGenerator,
 )
 
 class LoginThrottle(AnonRateThrottle):
@@ -70,32 +70,29 @@ router = DefaultRouter()
 router.register(r'customers', CustomerViewSet)
 
 urlpatterns = [
-    path('', home, name='home'),
     path('admin/', admin.site.urls),
+    path('', home, name='home'),
     
-    # Swagger URLs
-    re_path(r'^swagger(?P<format>\.json|\.yaml)$', schema_view.without_ui(cache_timeout=0), name='schema-json'),
+    # Authentication URLs
+    path('auth/login/', login_view, name='login'),
+    path('auth/logout/', logout_view, name='logout'),
+    path('auth/session/', check_session, name='check_session'),
+    path('auth/register/', UserRegistrationView.as_view(), name='register'),
+    path('auth/profile/', UserProfileView.as_view(), name='profile'),
+    path('auth/users/', UserListView.as_view(), name='user_list'),
+    
+    # API Documentation
+    path('swagger<format>/', schema_view.without_ui(cache_timeout=0), name='schema-json'),
     path('swagger/', schema_view.with_ui('swagger', cache_timeout=0), name='schema-swagger-ui'),
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
     
-    # Authentication URLs
-    path('auth/register/', UserRegistrationView.as_view(), name='register'),
-    path('auth/login/', CustomTokenObtainPairView.as_view(), name='login'),
-    path('auth/logout/', logout_view, name='logout'),
-    path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
-    path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    path('api/auth/verify/', TokenVerifyView.as_view(), name='token_verify'),
-    
-    # User Management URLs
-    path('users/', UserListView.as_view(), name='user_list'),
-    path('users/profile/', UserProfileView.as_view(), name='profile'),
-    
-    # Include other app URLs
-    path('api/inventory/', include('inventory.urls')),
-    path('api/manufacturing/', include('manufacturing.urls')),
-    path('api/sales/', include('sales.urls')),
-    path('api/', include(router.urls)),
-    path('api/health/', health_check, name='health-check'),
+    # App URLs
+    path('api/customers/', CustomerViewSet.as_view({'get': 'list', 'post': 'create'}), name='customer-list'),
+    path('api/customers/<int:pk>/', CustomerViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'}), name='customer-detail'),
+    path('api/products/', ProductViewSet.as_view({'get': 'list', 'post': 'create'}), name='product-list'),
+    path('api/products/<int:pk>/', ProductViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'}), name='product-detail'),
+    path('api/orders/', OrderViewSet.as_view({'get': 'list', 'post': 'create'}), name='order-list'),
+    path('api/orders/<int:pk>/', OrderViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'}), name='order-detail'),
 ]
 
 if settings.DEBUG:
