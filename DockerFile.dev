@@ -1,22 +1,29 @@
-FROM python:3.13-slim
+FROM python:3.11-slim-bullseye
 
 WORKDIR /app
 
-# Install essential dev tools
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
     python3-dev \
     libpq-dev \
+    netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
-# Python setup
-ENV PYTHONDONTWRITEBYTECODE 1
-ENV PYTHONUNBUFFERED 1
-ENV DEBUG 1
-
-# Install dependencies with dev extras
+# Install Python dependencies
 COPY requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy project files
 COPY . .
+
+# Make entrypoint executable and create static directory
+RUN chmod +x entrypoint.dev.sh && \
+    mkdir -p /app/static
+
+# Don't run collectstatic during build
+# It will be run by the entrypoint script instead
+
+EXPOSE 8000
+ENTRYPOINT ["/app/entrypoint.dev.sh"]
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
