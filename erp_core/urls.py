@@ -17,11 +17,6 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include, re_path
 from django.contrib.auth import views as auth_views
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-    TokenVerifyView
-)
 from erp_core.views.auth import (
     login_view, logout_view, check_session,
     UserRegistrationView, UserListView, UserProfileView,
@@ -34,7 +29,6 @@ from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from drf_yasg.generators import OpenAPISchemaGenerator
-from .serializers import CustomTokenObtainPairSerializer
 from rest_framework.throttling import AnonRateThrottle
 from rest_framework.routers import DefaultRouter
 from erp_core.views.customer import CustomerViewSet
@@ -93,6 +87,9 @@ urlpatterns = [
     path('api/products/<int:pk>/', ProductViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'}), name='product-detail'),
     path('api/orders/', OrderViewSet.as_view({'get': 'list', 'post': 'create'}), name='order-list'),
     path('api/orders/<int:pk>/', OrderViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'}), name='order-detail'),
+    
+    # Purchase App URLs
+    path('api/purchase/', include('purchase.urls')),
 ]
 
 if settings.DEBUG:
