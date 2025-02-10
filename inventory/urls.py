@@ -11,5 +11,5 @@ router.register(r'transactions', views.InventoryTransactionViewSet)
 router.register(r'raw-materials', views.RawMaterialViewSet)
 
 urlpatterns = [
-    path('api/', include(router.urls)),
+    path('', include(router.urls)),
 ] 

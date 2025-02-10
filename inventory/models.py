@@ -46,6 +46,7 @@ class Product(BaseModel):
     class Meta:
         verbose_name = "Product"
         verbose_name_plural = "Products"
+        ordering = ['product_code']
 
     def clean(self):
         if self.product_type == ProductType.SINGLE and self.customer:

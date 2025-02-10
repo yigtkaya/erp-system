@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
+from django.db.models import Q
 
 from .models import (
     InventoryCategory, UnitOfMeasure, Product,
@@ -65,7 +66,7 @@ class ProductViewSet(viewsets.ModelViewSet):
             openapi.Parameter(
                 'product_code',
                 openapi.IN_QUERY,
-                description="Filter by product code",
+                description="Filter by product code (exact match)",
                 type=openapi.TYPE_STRING,
                 required=False
             ),
@@ -83,22 +84,22 @@ class ProductViewSet(viewsets.ModelViewSet):
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
         
-        # Get filter parameters from query params
-        category = request.query_params.get('category')
-        product_type = request.query_params.get('product_type')
-        product_code = request.query_params.get('product_code')
-        product_name = request.query_params.get('product_name')
+        # Apply filters
+        category = request.query_params.get('category', None)
+        product_type = request.query_params.get('product_type', None)
+        product_code = request.query_params.get('product_code', None)
+        product_name = request.query_params.get('product_name', None)
 
-        # Apply filters if parameters are provided
         if category:
             queryset = queryset.filter(inventory_category__name=category)
         if product_type:
             queryset = queryset.filter(product_type=product_type)
         if product_code:
-            queryset = queryset.filter(product_code__iexact=product_code)
+            queryset = queryset.filter(product_code=product_code)
         if product_name:
             queryset = queryset.filter(product_name__icontains=product_name)
 
+        # Apply pagination
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)
@@ -241,6 +242,20 @@ class RawMaterialViewSet(viewsets.ModelViewSet):
                 description="Filter by inventory category (e.g. HAMMADDE, HURDA, KARANTINA)",
                 type=openapi.TYPE_STRING,
                 required=False
+            ),
+            openapi.Parameter(
+                'material_code',
+                openapi.IN_QUERY,
+                description="Filter by material code (exact match)",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+            openapi.Parameter(
+                'material_name',
+                openapi.IN_QUERY,
+                description="Filter by material name (case-insensitive partial match)",
+                type=openapi.TYPE_STRING,
+                required=False
             )
         ],
         responses={200: RawMaterialSerializer(many=True)},
@@ -248,10 +263,20 @@ class RawMaterialViewSet(viewsets.ModelViewSet):
     )
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
-        category = request.query_params.get('category')
+        
+        # Apply filters
+        category = request.query_params.get('category', None)
+        material_code = request.query_params.get('material_code', None)
+        material_name = request.query_params.get('material_name', None)
+
         if category:
             queryset = queryset.filter(inventory_category__name=category)
+        if material_code:
+            queryset = queryset.filter(material_code=material_code)
+        if material_name:
+            queryset = queryset.filter(material_name__icontains=material_name)
 
+        # Apply pagination
         page = self.paginate_queryset(queryset)
         if page is not None:
             serializer = self.get_serializer(page, many=True)

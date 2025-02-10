@@ -90,6 +90,10 @@ urlpatterns = [
     
     # Purchase App URLs
     path('api/purchase/', include('purchase.urls')),
+
+    # Inventory App URLs
+    path('api/inventory/', include('inventory.urls')),
+    
 ]
 
 if settings.DEBUG:
