@@ -5,7 +5,7 @@ from django.core.validators import MinValueValidator
 
 class InventoryCategory(models.Model):
     CATEGORY_CHOICES = [
-        ('HAMMADDE', 'Hammadde'),  # Raw Materials
+        ('HAMMADDE', 'Hammadde'),  # Raw Materials and Standard Parts
         ('PROSES', 'Proses'),      # Unfinished/Semi Products
         ('MAMUL', 'Mamül'),        # Finished and Semi-finished Products
         ('KARANTINA', 'Karantina'), # Items needing decision

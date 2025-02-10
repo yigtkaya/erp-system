@@ -15,6 +15,7 @@ from guardian.shortcuts import assign_perm, get_objects_for_user
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.conf import settings
+from django.views.decorators.csrf import csrf_exempt
 
 from erp_core.models import User, UserProfile, Department, RolePermission
 from erp_core.forms import UserRegistrationForm, UserProfileForm
@@ -93,6 +94,7 @@ def check_session(request):
     },
     tags=['Authentication']
 )
+@csrf_exempt
 @api_view(['POST'])
 @permission_classes([AllowAny])
 def login_view(request):

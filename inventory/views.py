@@ -15,6 +15,7 @@ from .serializers import (
     ProductSerializer, TechnicalDrawingSerializer,
     RawMaterialSerializer, InventoryTransactionSerializer
 )
+from .pagination import StandardResultsSetPagination
 
 class InventoryCategoryViewSet(viewsets.ModelViewSet):
     queryset = InventoryCategory.objects.all()
@@ -42,21 +43,36 @@ class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
 
     @swagger_auto_schema(
-        operation_description="List all products",
+        operation_description="List all products with optional filters",
         manual_parameters=[
             openapi.Parameter(
                 'category',
                 openapi.IN_QUERY,
-                description="Filter by inventory category",
+                description="Filter by inventory category (e.g. HAMMADDE, HURDA, KARANTINA)",
                 type=openapi.TYPE_STRING,
                 required=False
             ),
             openapi.Parameter(
                 'product_type',
                 openapi.IN_QUERY,
-                description="Filter by product type",
+                description="Filter by product type (e.g. STANDARD_PART)",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+            openapi.Parameter(
+                'product_code',
+                openapi.IN_QUERY,
+                description="Filter by product code",
+                type=openapi.TYPE_STRING,
+                required=False
+            ),
+            openapi.Parameter(
+                'product_name',
+                openapi.IN_QUERY,
+                description="Filter by product name (case-insensitive partial match)",
                 type=openapi.TYPE_STRING,
                 required=False
             )
@@ -66,13 +82,27 @@ class ProductViewSet(viewsets.ModelViewSet):
     )
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
-        category = request.query_params.get('category', None)
-        product_type = request.query_params.get('product_type', None)
+        
+        # Get filter parameters from query params
+        category = request.query_params.get('category')
+        product_type = request.query_params.get('product_type')
+        product_code = request.query_params.get('product_code')
+        product_name = request.query_params.get('product_name')
 
+        # Apply filters if parameters are provided
         if category:
             queryset = queryset.filter(inventory_category__name=category)
         if product_type:
             queryset = queryset.filter(product_type=product_type)
+        if product_code:
+            queryset = queryset.filter(product_code__iexact=product_code)
+        if product_name:
+            queryset = queryset.filter(product_name__icontains=product_name)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
 
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)
@@ -200,14 +230,15 @@ class RawMaterialViewSet(viewsets.ModelViewSet):
     queryset = RawMaterial.objects.all()
     serializer_class = RawMaterialSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
 
     @swagger_auto_schema(
-        operation_description="List all raw materials",
+        operation_description="List all raw materials with optional filters",
         manual_parameters=[
             openapi.Parameter(
                 'category',
                 openapi.IN_QUERY,
-                description="Filter by inventory category",
+                description="Filter by inventory category (e.g. HAMMADDE, HURDA, KARANTINA)",
                 type=openapi.TYPE_STRING,
                 required=False
             )
@@ -217,10 +248,14 @@ class RawMaterialViewSet(viewsets.ModelViewSet):
     )
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
-        category = request.query_params.get('category', None)
-
+        category = request.query_params.get('category')
         if category:
             queryset = queryset.filter(inventory_category__name=category)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            return self.get_paginated_response(serializer.data)
 
         serializer = self.get_serializer(queryset, many=True)
         return Response(serializer.data)

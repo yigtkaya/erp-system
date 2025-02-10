@@ -62,8 +62,6 @@ class Command(BaseCommand):
 
         # Create products
         mamul_category = InventoryCategory.objects.get(name='MAMUL')
-        pcs_unit = UnitOfMeasure.objects.get(unit_code='PCS')
-
         products = [
             {'product_code': 'P001', 'product_name': 'Metal Cabinet', 'current_stock': 50},
             {'product_code': 'P002', 'product_name': 'Aluminum Frame', 'current_stock': 100},
@@ -77,7 +75,6 @@ class Command(BaseCommand):
                     'product_name': product['product_name'],
                     'product_type': 'MONTAGED',
                     'current_stock': product['current_stock'],
-                    'unit': pcs_unit,
                     'inventory_category': mamul_category
                 }
             )
