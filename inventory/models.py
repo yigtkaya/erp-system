@@ -1,6 +1,6 @@
 from django.db import models
 from django.core.exceptions import ValidationError
-from erp_core.models import BaseModel, User, Customer, ProductType
+from erp_core.models import BaseModel, User, Customer, ProductType, MaterialType
 from django.core.validators import MinValueValidator
 
 class InventoryCategory(models.Model):
@@ -92,14 +92,24 @@ class RawMaterial(BaseModel):
     current_stock = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     unit = models.ForeignKey(UnitOfMeasure, on_delete=models.PROTECT)
     inventory_category = models.ForeignKey(InventoryCategory, on_delete=models.PROTECT, null=True, blank=True)
+    
+    # New field for material type with enum-like choices
+    material_type = models.CharField(max_length=10, choices=MaterialType.choices, default=MaterialType.STEEL)
+    
+    # New fields for dimensions / measurements
+    width = models.FloatField(null=True, blank=True, validators=[MinValueValidator(0.0)])
+    height = models.FloatField(null=True, blank=True, validators=[MinValueValidator(0.0)])
+    thickness = models.FloatField(null=True, blank=True, validators=[MinValueValidator(0.0)])
+    diameter_mm = models.FloatField(null=True, blank=True, validators=[MinValueValidator(0.0)])
 
     class Meta:
         verbose_name = "Raw Material"
         verbose_name_plural = "Raw Materials"
 
     def clean(self):
-        if self.inventory_category.name not in ['HAMMADDE', 'HURDA', 'KARANTINA']:
+        if self.inventory_category and self.inventory_category.name not in ['HAMMADDE', 'HURDA', 'KARANTINA']:
             raise ValidationError("Raw materials can only be in Hammadde, Hurda, or Karantina categories")
+        # Optional: Additional validations for the new fields can be added here.
 
     def __str__(self):
         return f"{self.material_code} - {self.material_name}"

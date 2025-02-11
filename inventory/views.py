@@ -47,7 +47,7 @@ class ProductViewSet(viewsets.ModelViewSet):
     pagination_class = StandardResultsSetPagination
 
     @swagger_auto_schema(
-        operation_description="List all products with optional filters",
+        operation_description="List all products with optional filters, including associated technical drawings",
         manual_parameters=[
             openapi.Parameter(
                 'category',

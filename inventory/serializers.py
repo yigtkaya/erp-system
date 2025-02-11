@@ -15,13 +15,19 @@ class UnitOfMeasureSerializer(serializers.ModelSerializer):
         fields = ['id', 'unit_code', 'unit_name']
 
 class ProductSerializer(serializers.ModelSerializer):
+    technical_drawings = serializers.SerializerMethodField()
+
     class Meta:
         model = Product
         fields = [
             'id', 'product_code', 'product_name', 'product_type',
             'description', 'current_stock', 'customer',
-            'inventory_category', 'created_at', 'modified_at'
+            'inventory_category', 'technical_drawings', 'created_at', 'modified_at'
         ]
+
+    def get_technical_drawings(self, obj):
+        drawings = obj.technicaldrawing_set.all()
+        return TechnicalDrawingSerializer(drawings, many=True).data
 
 class TechnicalDrawingSerializer(serializers.ModelSerializer):
     class Meta:
@@ -36,8 +42,19 @@ class RawMaterialSerializer(serializers.ModelSerializer):
     class Meta:
         model = RawMaterial
         fields = [
-            'id', 'material_code', 'material_name', 'current_stock',
-            'unit', 'inventory_category', 'created_at', 'modified_at'
+            'id',
+            'material_code',
+            'material_name',
+            'current_stock',
+            'unit',
+            'inventory_category',
+            'material_type',
+            'width',
+            'height',
+            'thickness',
+            'diameter_mm',
+            'created_at',
+            'modified_at'
         ]
 
 class InventoryTransactionSerializer(serializers.ModelSerializer):

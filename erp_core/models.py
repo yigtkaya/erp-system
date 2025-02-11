@@ -11,6 +11,10 @@ class ProductType(models.TextChoices):
     SINGLE = 'SINGLE', 'Single'
     STANDARD_PART = 'STANDARD_PART', 'Standard Part'  # Added
 
+class MaterialType(models.TextChoices):
+    STEEL = 'STEEL', 'Steel'
+    ALUMINUM = 'ALUMINUM', 'Aluminum'
+
 class ComponentType(models.TextChoices):
     SEMI_PRODUCT = 'SEMI_PRODUCT', 'Semi Product'
     MONTAGED_PRODUCT = 'MONTAGED_PRODUCT', 'Montaged Product'
