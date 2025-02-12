@@ -10,7 +10,9 @@ router.register(r'products', views.ProductViewSet)
 router.register(r'technical-drawings', views.TechnicalDrawingViewSet)
 router.register(r'transactions', views.InventoryTransactionViewSet)
 router.register(r'raw-materials', views.RawMaterialViewSet)
+router.register(r'units', views.UnitOfMeasureViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('material-types/', views.MaterialTypeChoicesAPIView.as_view(), name='material-type-choices'),
 ] 

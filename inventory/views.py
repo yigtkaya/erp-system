@@ -7,18 +7,24 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.db.models import Q
 from rest_framework.exceptions import ValidationError
+from rest_framework.views import APIView
 
 from .models import (
     InventoryCategory, UnitOfMeasure, Product,
-    TechnicalDrawing, RawMaterial, InventoryTransaction
+    TechnicalDrawing, RawMaterial, InventoryTransaction, UnitOfMeasure
 )
 from .serializers import (
     InventoryCategorySerializer, UnitOfMeasureSerializer,
     ProductSerializer, TechnicalDrawingDetailSerializer,
     TechnicalDrawingListSerializer, RawMaterialSerializer, 
-    InventoryTransactionSerializer
+    InventoryTransactionSerializer, UnitOfMeasureSerializer
 )
 from .pagination import StandardResultsSetPagination
+
+class UnitOfMeasureViewSet(viewsets.ReadOnlyModelViewSet):
+    queryset = UnitOfMeasure.objects.all()
+    serializer_class = UnitOfMeasureSerializer
+    permission_classes = [IsAuthenticated]
 
 class InventoryCategoryViewSet(viewsets.ModelViewSet):
     queryset = InventoryCategory.objects.all()
@@ -387,3 +393,15 @@ class RawMaterialViewSet(viewsets.ModelViewSet):
     )
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
+
+class MaterialTypeChoicesAPIView(APIView):
+    """
+    API view to get available material type choices.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        # Get the field choices from the RawMaterial model.
+        field = RawMaterial._meta.get_field('material_type')
+        choices = [{'value': value, 'display_name': display} for (value, display) in field.choices]
+        return Response(choices)

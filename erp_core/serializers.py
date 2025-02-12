@@ -51,9 +51,9 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['id', 'username', 'email', 'password', 'confirm_password', 
+        fields = ['id', 'username', 'email', 'password', 'confirm_password',
                   'role', 'is_active', 'profile', 'created_at']
-        read_only_fields = ['created_at']
+        read_only_fields = ['id', 'created_at']
         extra_kwargs = {
             'username': {'required': False},
             'email': {'required': False},
@@ -72,14 +72,12 @@ class UserSerializer(serializers.ModelSerializer):
         
         # Create the user
         user = User.objects.create_user(**validated_data)
-        
-        # Create the profile
+
+        # Create the profile if necessary
         if user.username != 'AnonymousUser':
-            UserProfile.objects.create(
-                user=user,
-                employee_id=f'EMP{user.id:04d}',
-                **profile_data
-            )
+            # Use the provided employee_id if available; otherwise, use a default
+            employee_id = profile_data.pop('employee_id', f'EMP{user.id:04d}')
+            UserProfile.objects.create(user=user, employee_id=employee_id, **profile_data)
         
         return user
 
