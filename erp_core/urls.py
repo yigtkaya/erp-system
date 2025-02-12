@@ -22,7 +22,7 @@ from erp_core.views.auth import (
     UserRegistrationView, UserListView, UserProfileView,
 )
 from erp_core.views.home import home, health_check
-from erp_core.views.user_management import UserViewSet
+from erp_core.views.user_management import UserViewSet, set_password
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import TemplateView
@@ -76,6 +76,7 @@ urlpatterns = [
     path('auth/register/', UserRegistrationView.as_view(), name='register'),
     path('auth/profile/', UserProfileView.as_view(), name='profile'),
     path('auth/users/', UserListView.as_view(), name='user_list'),
+    path('auth/set-password/<str:uidb64>/<str:token>/', set_password, name='set_password'),
     
     # API URLs
     path('api/', include(router.urls)),

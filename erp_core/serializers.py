@@ -39,46 +39,52 @@ class UserProfileSerializer(serializers.ModelSerializer):
         model = UserProfile
         fields = ['department', 'department_id', 'phone_number', 'employee_id', 'is_department_head']
         read_only_fields = ['is_department_head']
+        extra_kwargs = {
+            'phone_number': {'required': False},
+            'employee_id': {'required': False}
+        }
 
 class UserSerializer(serializers.ModelSerializer):
-    profile = UserProfileSerializer(required=True)
-    password = serializers.CharField(write_only=True, required=True)
-    confirm_password = serializers.CharField(write_only=True, required=True)
+    profile = UserProfileSerializer(required=False)
+    password = serializers.CharField(write_only=True, required=False)
+    confirm_password = serializers.CharField(write_only=True, required=False)
 
     class Meta:
         model = User
         fields = ['id', 'username', 'email', 'password', 'confirm_password', 
-                 'role', 'is_active', 'profile', 'created_at']
+                  'role', 'is_active', 'profile', 'created_at']
         read_only_fields = ['created_at']
+        extra_kwargs = {
+            'username': {'required': False},
+            'email': {'required': False},
+            'role': {'required': False}
+        }
 
     def validate(self, attrs):
-        if attrs.get('password') != attrs.get('confirm_password'):
-            raise serializers.ValidationError({"password": "Password fields didn't match."})
+        if 'password' in attrs or 'confirm_password' in attrs:
+            if attrs.get('password') != attrs.get('confirm_password'):
+                raise serializers.ValidationError({"password": "Password fields didn't match."})
         return attrs
 
     def create(self, validated_data):
-        profile_data = validated_data.pop('profile')
-        validated_data.pop('confirm_password')
+        profile_data = validated_data.pop('profile', {})
+        validated_data.pop('confirm_password', None)
         
-        user = User.objects.create_user(
-            username=validated_data['username'],
-            email=validated_data['email'],
-            password=validated_data['password'],
-            role=validated_data.get('role', 'VIEWER'),
-            is_active=validated_data.get('is_active', True)
-        )
+        # Create the user
+        user = User.objects.create_user(**validated_data)
         
-        UserProfile.objects.create(
-            user=user,
-            department_id=profile_data.get('department_id'),
-            phone_number=profile_data.get('phone_number', ''),
-            employee_id=profile_data['employee_id']
-        )
+        # Create the profile
+        if user.username != 'AnonymousUser':
+            UserProfile.objects.create(
+                user=user,
+                employee_id=f'EMP{user.id:04d}',
+                **profile_data
+            )
         
         return user
 
     def update(self, instance, validated_data):
-        profile_data = validated_data.pop('profile', {})
+        profile_data = validated_data.pop('profile', None)
         password = validated_data.pop('password', None)
         validated_data.pop('confirm_password', None)
         
@@ -91,8 +97,13 @@ class UserSerializer(serializers.ModelSerializer):
         instance.save()
         
         if profile_data and hasattr(instance, 'profile'):
-            for attr, value in profile_data.items():
-                setattr(instance.profile, attr, value)
-            instance.profile.save()
+            profile = instance.profile
+            if 'department_id' in profile_data:
+                profile.department_id = profile_data['department_id']
+            if 'phone_number' in profile_data:
+                profile.phone_number = profile_data['phone_number']
+            if 'employee_id' in profile_data:
+                profile.employee_id = profile_data['employee_id']
+            profile.save()
             
         return instance

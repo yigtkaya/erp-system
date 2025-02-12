@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'anymail',
     'manufacturing',
     'inventory',
     'sales',
@@ -232,6 +233,16 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
+# Email Configuration
+EMAIL_BACKEND = "anymail.backends.mailgun.EmailBackend"
+DEFAULT_FROM_EMAIL = f"noreply@{os.getenv('MAILGUN_SENDER_DOMAIN')}"
+SERVER_EMAIL = f"server@{os.getenv('MAILGUN_SENDER_DOMAIN')}"
+
+ANYMAIL = {
+    "MAILGUN_API_KEY": os.getenv('MAIL_GUN_API_KEY'),
+    "MAILGUN_SENDER_DOMAIN": os.getenv('MAILGUN_SENDER_DOMAIN'),
+    "MAILGUN_API_URL": "https://api.mailgun.net/v3",
+}
 
 # Internationalization
 # https://docs.djangoproject.com/en/5.1/topics/i18n/
@@ -279,11 +290,6 @@ STORAGES = {
         "OPTIONS": CLOUDFLARE_R2_CONFIG
     }
 }
-
-# MAIL
-EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-MAILGUN_ACCESS_KEY = os.getenv('MAILGUN_API_KEY')
-MAILGUN_SERVER_NAME = os.getenv('MAILGUN_SERVER_NAME')
 
 # Media files
 MEDIA_URL = '/media/'
