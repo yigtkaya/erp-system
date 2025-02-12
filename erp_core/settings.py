@@ -254,6 +254,37 @@ STATICFILES_DIRS = [
     BASE_DIR / 'static',
 ]
 
+CLOUDFLARE_R2_BUCKET_NAME = os.getenv('CLOUDFLARE_R2_BUCKET_NAME')
+CLOUDFLARE_R2_ACCESS_KEY = os.getenv('CLOUDFLARE_R2_ACCESS_KEY')
+CLOUDFLARE_R2_SECRET_KEY = os.getenv('CLOUDFLARE_R2_SECRET_KEY')
+CLOUDFLARE_R2_BUCKET_ENDPOINT = os.getenv('CLOUDFLARE_R2_BUCKET_ENDPOINT')
+
+CLOUDFLARE_R2_CONFIG = {
+    'bucket_name': CLOUDFLARE_R2_BUCKET_NAME,
+    'access_key': CLOUDFLARE_R2_ACCESS_KEY,
+    'secret_key': CLOUDFLARE_R2_SECRET_KEY,
+    'endpoint_url': CLOUDFLARE_R2_BUCKET_ENDPOINT,
+    "default_acl": "public-read",
+    "signature_version": "s3v4",
+}
+
+
+STORAGES = {
+    "default": {
+        "BACKEND": "erp_core.helpers.cloudflare.storages.MediaFileStorage",
+        "OPTIONS": CLOUDFLARE_R2_CONFIG
+    },
+    "staticfiles": {
+        "BACKEND": "erp_core.helpers.cloudflare.storages.StaticFileStorage",
+        "OPTIONS": CLOUDFLARE_R2_CONFIG
+    }
+}
+
+# MAIL
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+MAILGUN_ACCESS_KEY = os.getenv('MAILGUN_API_KEY')
+MAILGUN_SERVER_NAME = os.getenv('MAILGUN_SERVER_NAME')
+
 # Media files
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'

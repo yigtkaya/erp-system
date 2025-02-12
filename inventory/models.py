@@ -2,6 +2,7 @@ from django.db import models
 from django.core.exceptions import ValidationError
 from erp_core.models import BaseModel, User, Customer, ProductType, MaterialType
 from django.core.validators import MinValueValidator
+import pathlib 
 
 class InventoryCategory(models.Model):
     CATEGORY_CHOICES = [
@@ -69,7 +70,7 @@ class TechnicalDrawing(BaseModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     version = models.CharField(max_length=20)
     drawing_code = models.CharField(max_length=50)
-    drawing_url = models.URLField(max_length=500)
+    drawing_file = models.FileField(upload_to='technical_drawings/%Y/%m/%d/', max_length=500, blank=True, null=True)
     effective_date = models.DateField()
     is_current = models.BooleanField(default=True)
     revision_notes = models.CharField(max_length=500, blank=True, null=True)
@@ -83,6 +84,21 @@ class TechnicalDrawing(BaseModel):
             models.Index(fields=['product', 'is_current']),
         ]
 
+    def clean(self):
+        # Ensure only one current version exists per product
+        if self.is_current:
+            current_drawings = TechnicalDrawing.objects.filter(
+                product=self.product,
+                is_current=True
+            ).exclude(pk=self.pk)
+            if current_drawings.exists():
+                # Set all other versions to not current
+                current_drawings.update(is_current=False)
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+    
     def __str__(self):
         return f"{self.drawing_code} v{self.version}"
 

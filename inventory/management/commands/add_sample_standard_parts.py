@@ -10,9 +10,9 @@ class Command(BaseCommand):
         self.stdout.write("Adding sample standard parts...")
 
         try:
-            mamul_category = InventoryCategory.objects.get(name='MAMUL')
+            hammadde_category = InventoryCategory.objects.get(name='HAMMADDE')
         except InventoryCategory.DoesNotExist:
-            self.stdout.write(self.style.ERROR("InventoryCategory 'MAMUL' does not exist. Please create it first."))
+            self.stdout.write(self.style.ERROR("InventoryCategory 'HAMMADDE' does not exist. Please create it first."))
             return
 
         # Use the enum value from ProductType for standard parts
@@ -22,21 +22,21 @@ class Command(BaseCommand):
             {
                 'product_code': 'SP001',
                 'product_name': 'Standard Part A',
-                'inventory_category': mamul_category,
+                'inventory_category': hammadde_category,
                 'current_stock': 100,
                 'product_type': standard_product_type,
             },
             {
                 'product_code': 'SP002',
                 'product_name': 'Standard Part B',
-                'inventory_category': mamul_category,
+                'inventory_category': hammadde_category,
                 'current_stock': 150,
                 'product_type': standard_product_type,
             },
             {
                 'product_code': 'SP003',
                 'product_name': 'Standard Part C',
-                'inventory_category': mamul_category,
+                'inventory_category': hammadde_category,
                 'current_stock': 75,
                 'product_type': standard_product_type,
             },

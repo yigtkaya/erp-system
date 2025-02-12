@@ -14,29 +14,54 @@ class UnitOfMeasureSerializer(serializers.ModelSerializer):
         model = UnitOfMeasure
         fields = ['id', 'unit_code', 'unit_name']
 
+class TechnicalDrawingListSerializer(serializers.ModelSerializer):
+    drawing_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = TechnicalDrawing
+        fields = [
+            'id', 'version', 'drawing_code', 'drawing_file',
+            'drawing_url', 'effective_date', 'is_current', 'revision_notes',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['drawing_url']
+
+    def get_drawing_url(self, obj):
+        if obj.drawing_file:
+            return obj.drawing_file.url
+        return None
+
 class ProductSerializer(serializers.ModelSerializer):
-    technical_drawings = serializers.SerializerMethodField()
+    technical_drawings = TechnicalDrawingListSerializer(source='technicaldrawing_set', many=True, read_only=True)
+    inventory_category_display = serializers.CharField(source='inventory_category.get_name_display', read_only=True)
 
     class Meta:
         model = Product
         fields = [
             'id', 'product_code', 'product_name', 'product_type',
-            'description', 'current_stock', 'customer',
-            'inventory_category', 'technical_drawings', 'created_at', 'modified_at'
+            'description', 'current_stock',
+            'inventory_category', 'inventory_category_display',
+            'technical_drawings', 'created_at', 'modified_at'
         ]
 
-    def get_technical_drawings(self, obj):
-        drawings = obj.technicaldrawing_set.all()
-        return TechnicalDrawingSerializer(drawings, many=True).data
-
-class TechnicalDrawingSerializer(serializers.ModelSerializer):
+class TechnicalDrawingDetailSerializer(serializers.ModelSerializer):
+    drawing_url = serializers.SerializerMethodField()
+    product_code = serializers.CharField(source='product.product_code', read_only=True)
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
+    
     class Meta:
         model = TechnicalDrawing
         fields = [
-            'id', 'product', 'version', 'drawing_code', 'drawing_url',
-            'effective_date', 'is_current', 'revision_notes', 'approved_by',
-            'created_at', 'modified_at'
+            'id', 'product', 'product_code', 'product_name', 'version', 
+            'drawing_code', 'drawing_file', 'drawing_url', 'effective_date', 
+            'is_current', 'revision_notes', 'approved_by', 'created_at', 'updated_at'
         ]
+        read_only_fields = ['drawing_url', 'product_code', 'product_name']
+
+    def get_drawing_url(self, obj):
+        if obj.drawing_file:
+            return obj.drawing_file.url
+        return None
 
 class RawMaterialSerializer(serializers.ModelSerializer):
     class Meta:

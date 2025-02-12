@@ -22,6 +22,7 @@ from erp_core.views.auth import (
     UserRegistrationView, UserListView, UserProfileView,
 )
 from erp_core.views.home import home, health_check
+from erp_core.views.user_management import UserViewSet
 from django.conf import settings
 from django.conf.urls.static import static
 from django.views.generic import TemplateView
@@ -62,6 +63,7 @@ class LoginThrottle(AnonRateThrottle):
 # Update router configuration
 router = DefaultRouter()
 router.register(r'customers', CustomerViewSet)
+router.register(r'users', UserViewSet)
 
 urlpatterns = [
     path('admin/', admin.site.urls),
@@ -74,6 +76,9 @@ urlpatterns = [
     path('auth/register/', UserRegistrationView.as_view(), name='register'),
     path('auth/profile/', UserProfileView.as_view(), name='profile'),
     path('auth/users/', UserListView.as_view(), name='user_list'),
+    
+    # API URLs
+    path('api/', include(router.urls)),
     
     # API Documentation
     path('swagger<format>/', schema_view.without_ui(cache_timeout=0), name='schema-json'),
@@ -93,7 +98,6 @@ urlpatterns = [
 
     # Inventory App URLs
     path('api/inventory/', include('inventory.urls')),
-    
 ]
 
 if settings.DEBUG:

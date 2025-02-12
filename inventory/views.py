@@ -6,6 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django.db.models import Q
+from rest_framework.exceptions import ValidationError
 
 from .models import (
     InventoryCategory, UnitOfMeasure, Product,
@@ -13,8 +14,9 @@ from .models import (
 )
 from .serializers import (
     InventoryCategorySerializer, UnitOfMeasureSerializer,
-    ProductSerializer, TechnicalDrawingSerializer,
-    RawMaterialSerializer, InventoryTransactionSerializer
+    ProductSerializer, TechnicalDrawingDetailSerializer,
+    TechnicalDrawingListSerializer, RawMaterialSerializer, 
+    InventoryTransactionSerializer
 )
 from .pagination import StandardResultsSetPagination
 
@@ -41,10 +43,33 @@ class InventoryCategoryViewSet(viewsets.ModelViewSet):
         return super().create(request, *args, **kwargs)
 
 class ProductViewSet(viewsets.ModelViewSet):
-    queryset = Product.objects.all()
+    queryset = Product.objects.all().select_related('inventory_category').prefetch_related('technicaldrawing_set')
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = StandardResultsSetPagination
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Apply filters
+        category = self.request.query_params.get('category', None)
+        product_type = self.request.query_params.get('product_type', None)
+        product_code = self.request.query_params.get('product_code', None)
+        product_name = self.request.query_params.get('product_name', None)
+
+        try:
+            if category:
+                queryset = queryset.filter(inventory_category__name=category)
+            if product_type:
+                queryset = queryset.filter(product_type=product_type)
+            if product_code:
+                queryset = queryset.filter(product_code=product_code)
+            if product_name:
+                queryset = queryset.filter(product_name__icontains=product_name)
+        except Exception as e:
+            raise ValidationError(f"Invalid filter parameters: {str(e)}")
+
+        return queryset
 
     @swagger_auto_schema(
         operation_description="List all products with optional filters, including associated technical drawings",
@@ -78,35 +103,26 @@ class ProductViewSet(viewsets.ModelViewSet):
                 required=False
             )
         ],
-        responses={200: ProductSerializer(many=True)},
+        responses={
+            200: ProductSerializer(many=True),
+            400: "Invalid filter parameters",
+            500: "Internal server error"
+        },
         tags=['Products']
     )
     def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        
-        # Apply filters
-        category = request.query_params.get('category', None)
-        product_type = request.query_params.get('product_type', None)
-        product_code = request.query_params.get('product_code', None)
-        product_name = request.query_params.get('product_name', None)
-
-        if category:
-            queryset = queryset.filter(inventory_category__name=category)
-        if product_type:
-            queryset = queryset.filter(product_type=product_type)
-        if product_code:
-            queryset = queryset.filter(product_code=product_code)
-        if product_name:
-            queryset = queryset.filter(product_name__icontains=product_name)
-
-        # Apply pagination
-        page = self.paginate_queryset(queryset)
-        if page is not None:
-            serializer = self.get_serializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-
-        serializer = self.get_serializer(queryset, many=True)
-        return Response(serializer.data)
+        try:
+            return super().list(request, *args, **kwargs)
+        except ValidationError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            return Response(
+                {'error': 'Internal server error occurred', 'detail': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
     @swagger_auto_schema(
         operation_description="Create a new product",
@@ -162,6 +178,84 @@ class ProductViewSet(viewsets.ModelViewSet):
                 {'error': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+class TechnicalDrawingViewSet(viewsets.ModelViewSet):
+    queryset = TechnicalDrawing.objects.all().select_related('product', 'approved_by')
+    serializer_class = TechnicalDrawingDetailSerializer
+    permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultsSetPagination
+
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return TechnicalDrawingListSerializer
+        return TechnicalDrawingDetailSerializer
+
+    @swagger_auto_schema(
+        operation_description="List all technical drawings with optional filters",
+        manual_parameters=[
+            openapi.Parameter(
+                'product',
+                openapi.IN_QUERY,
+                description="Filter by product ID",
+                type=openapi.TYPE_INTEGER,
+                required=False
+            ),
+            openapi.Parameter(
+                'is_current',
+                openapi.IN_QUERY,
+                description="Filter by current version status",
+                type=openapi.TYPE_BOOLEAN,
+                required=False
+            )
+        ],
+        responses={
+            200: TechnicalDrawingListSerializer(many=True),
+            400: "Invalid filter parameters",
+            500: "Internal server error"
+        },
+        tags=['Technical Drawings']
+    )
+    def list(self, request, *args, **kwargs):
+        try:
+            queryset = self.get_queryset()
+            
+            # Apply filters
+            product_id = request.query_params.get('product', None)
+            is_current = request.query_params.get('is_current', None)
+
+            if product_id:
+                queryset = queryset.filter(product_id=product_id)
+            if is_current is not None:
+                is_current = is_current.lower() == 'true'
+                queryset = queryset.filter(is_current=is_current)
+
+            # Apply pagination
+            page = self.paginate_queryset(queryset)
+            if page is not None:
+                serializer = self.get_serializer(page, many=True)
+                return self.get_paginated_response(serializer.data)
+
+            serializer = self.get_serializer(queryset, many=True)
+            return Response(serializer.data)
+        except ValidationError as e:
+            return Response(
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            return Response(
+                {'error': 'Internal server error occurred', 'detail': str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    @swagger_auto_schema(
+        operation_description="Create a new technical drawing",
+        request_body=TechnicalDrawingDetailSerializer,
+        responses={201: TechnicalDrawingDetailSerializer()},
+        tags=['Technical Drawings']
+    )
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
 
 class InventoryTransactionViewSet(viewsets.ModelViewSet):
     queryset = InventoryTransaction.objects.all()
