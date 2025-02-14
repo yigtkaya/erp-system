@@ -36,6 +36,9 @@ apt-get install -y \
     software-properties-common \
     python3-pip \
     python3-dev \
+    python3-venv \
+    python3-full \
+    pipx \
     nginx \
     netcat-openbsd \
     ufw \
@@ -98,7 +101,21 @@ check_status "Fail2ban configuration"
 
 # Install Python dependencies
 echo "Installing Python dependencies..."
-pip3 install docker-compose
+# Create a virtual environment for global tools
+VENV_PATH="/opt/venv"
+python3 -m venv $VENV_PATH
+source $VENV_PATH/bin/activate
+$VENV_PATH/bin/pip install --upgrade pip
+$VENV_PATH/bin/pip install docker-compose
+
+# Create symlink for docker-compose if not installed via package manager
+if [ ! -f "/usr/local/bin/docker-compose" ]; then
+    ln -s $VENV_PATH/bin/docker-compose /usr/local/bin/docker-compose
+fi
+
+# Install pipx for isolated Python applications
+pipx install docker-compose
+
 check_status "Python dependencies installation"
 
 # Basic security configurations
