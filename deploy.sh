@@ -75,11 +75,11 @@ cat > .env.prod << EOL
 DEBUG=False
 SECRET_KEY="!6l@*-lf#5jed550yx!bt30w)%@&#o+-j*svjuh8@le9%hh+$="
 DJANGO_SETTINGS_MODULE=erp_core.settings.production
-ALLOWED_HOSTS=68.183.213.111,kapsam-erp.vercel.app
+ALLOWED_HOSTS=68.183.213.111
 DJANGO_ADMIN_URL=admin
 
 # Security
-CSRF_TRUSTED_ORIGINS=http://68.183.213.111,https://kapsam-erp.vercel.app
+CSRF_TRUSTED_ORIGINS=http://68.183.213.111
 SECURE_SSL_REDIRECT=False
 SESSION_COOKIE_SECURE=False
 CSRF_COOKIE_SECURE=False
@@ -146,7 +146,6 @@ MAILGUN_SENDER_DOMAIN=your-domain.com
 CORS_ALLOWED_ORIGINS=https://kapsam-erp.vercel.app
 CORS_ALLOW_CREDENTIALS=True
 CORS_EXPOSE_HEADERS=Content-Type,Authorization
-
 
 EOL
 
