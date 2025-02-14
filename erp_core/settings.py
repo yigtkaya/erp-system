@@ -150,36 +150,20 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 # CORS Settings
-CORS_ALLOW_ALL_ORIGINS = False
-CORS_ALLOWED_ORIGINS = [
-    "http://68.183.213.111",
-    "https://kapsam-erp.vercel.app"
-]
+CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_METHODS = [
-    'DELETE',
-    'GET',
-    'OPTIONS',
-    'PATCH',
-    'POST',
-    'PUT',
-]
-CORS_ALLOW_HEADERS = [
-    'accept',
-    'accept-encoding',
-    'authorization',
-    'content-type',
-    'dnt',
-    'origin',
-    'user-agent',
-    'x-csrftoken',
-    'x-requested-with',
-]
+CORS_EXPOSE_HEADERS = ['Content-Type', 'X-CSRFToken']
 
-# Security Settings
+# CSRF settings
+CSRF_USE_SESSIONS = False
+CSRF_COOKIE_HTTPONLY = False
+CSRF_COOKIE_SAMESITE = None
+CSRF_COOKIE_SECURE = False
 CSRF_TRUSTED_ORIGINS = [
     "http://68.183.213.111",
-    "https://kapsam-erp.vercel.app"
+    "https://kapsam-erp.vercel.app",
+    "http://localhost",
+    "http://127.0.0.1"
 ]
 
 # Swagger Settings
@@ -206,10 +190,10 @@ SWAGGER_SETTINGS = {
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication',
-        'rest_framework.authentication.BasicAuthentication'
+        'rest_framework.authentication.BasicAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated'
+        'rest_framework.permissions.AllowAny'  # Temporarily allow all access for testing
     ],
     'DEFAULT_PARSER_CLASSES': [
         'rest_framework.parsers.JSONParser',
@@ -220,6 +204,9 @@ REST_FRAMEWORK = {
         'rest_framework.renderers.JSONRenderer',
         'rest_framework.renderers.BrowsableAPIRenderer',
     ],
+    'EXCEPTION_HANDLER': 'rest_framework.views.exception_handler',
+    'NON_FIELD_ERRORS_KEY': 'error',
+    'DEFAULT_VERSIONING_CLASS': 'rest_framework.versioning.URLPathVersioning',
 }
 
 # Login/Logout Settings
@@ -327,23 +314,13 @@ if DEBUG:
 SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_AGE = 86400  # 24 hours in seconds
 SESSION_SAVE_EVERY_REQUEST = True
-SESSION_COOKIE_SAMESITE = None  # Changed to None to allow cross-site requests
+SESSION_COOKIE_SAMESITE = None
 SESSION_COOKIE_SECURE = False
-SESSION_COOKIE_DOMAIN = None  # Allow the cookie to work on all domains
-
-# CSRF settings
-CSRF_COOKIE_SAMESITE = 'Lax'  # Changed from None
-CSRF_COOKIE_SECURE = False  # Set to True only if using HTTPS
-CSRF_COOKIE_DOMAIN = None  # Allow the cookie to work on all domains
-CSRF_TRUSTED_ORIGINS = [
-    "http://68.183.213.111",
-    "https://kapsam-erp.vercel.app"
-]
-CSRF_USE_SESSIONS = True  # Store CSRF token in session instead of cookie
+SESSION_COOKIE_HTTPONLY = True
 
 # Security settings
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
-SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', '0') == '1'
+SECURE_SSL_REDIRECT = False
 SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', '0'))
 SECURE_HSTS_INCLUDE_SUBDOMAINS = os.getenv('SECURE_HSTS_INCLUDE_SUBDOMAINS', '0') == '1'
 SECURE_HSTS_PRELOAD = os.getenv('SECURE_HSTS_PRELOAD', '0') == '1'
