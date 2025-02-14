@@ -145,7 +145,6 @@ CACHES = {
 
 # Authentication Backends
 AUTHENTICATION_BACKENDS = [
-    'axes.backends.AxesStandaloneBackend',
     'django.contrib.auth.backends.ModelBackend',
     'guardian.backends.ObjectPermissionBackend',
 ]
@@ -154,6 +153,7 @@ AUTHENTICATION_BACKENDS = [
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOWED_ORIGINS = [
     "http://68.183.213.111",
+    "https://kapsam-erp.vercel.app"
 ]
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_METHODS = [
@@ -179,6 +179,7 @@ CORS_ALLOW_HEADERS = [
 # Security Settings
 CSRF_TRUSTED_ORIGINS = [
     "http://68.183.213.111",
+    "https://kapsam-erp.vercel.app"
 ]
 
 # Swagger Settings
@@ -209,7 +210,16 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated'
-    ]
+    ],
+    'DEFAULT_PARSER_CLASSES': [
+        'rest_framework.parsers.JSONParser',
+        'rest_framework.parsers.FormParser',
+        'rest_framework.parsers.MultiPartParser'
+    ],
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',
+    ],
 }
 
 # Login/Logout Settings
@@ -314,14 +324,26 @@ if DEBUG:
     }
 
 # Session settings
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 SESSION_COOKIE_AGE = 86400  # 24 hours in seconds
 SESSION_SAVE_EVERY_REQUEST = True
+SESSION_COOKIE_SAMESITE = None  # Changed to None to allow cross-site requests
+SESSION_COOKIE_SECURE = False
+SESSION_COOKIE_DOMAIN = None  # Allow the cookie to work on all domains
+
+# CSRF settings
+CSRF_COOKIE_SAMESITE = 'Lax'  # Changed from None
+CSRF_COOKIE_SECURE = False  # Set to True only if using HTTPS
+CSRF_COOKIE_DOMAIN = None  # Allow the cookie to work on all domains
+CSRF_TRUSTED_ORIGINS = [
+    "http://68.183.213.111",
+    "https://kapsam-erp.vercel.app"
+]
+CSRF_USE_SESSIONS = True  # Store CSRF token in session instead of cookie
 
 # Security settings
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SECURE_SSL_REDIRECT = os.getenv('SECURE_SSL_REDIRECT', '0') == '1'
-SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', '0') == '1'
-CSRF_COOKIE_SECURE = os.getenv('CSRF_COOKIE_SECURE', '0') == '1'
 SECURE_HSTS_SECONDS = int(os.getenv('SECURE_HSTS_SECONDS', '0'))
 SECURE_HSTS_INCLUDE_SUBDOMAINS = os.getenv('SECURE_HSTS_INCLUDE_SUBDOMAINS', '0') == '1'
 SECURE_HSTS_PRELOAD = os.getenv('SECURE_HSTS_PRELOAD', '0') == '1'
