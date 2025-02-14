@@ -106,8 +106,11 @@ VENV_PATH="/opt/venv"
 python3 -m venv $VENV_PATH
 source $VENV_PATH/bin/activate
 
-# Upgrade pip, setuptools, and wheel to ensure compatibility with Python 3.12
-$VENV_PATH/bin/pip install --upgrade pip setuptools wheel
+# Set the environment variable to use standard library distutils
+export SETUPTOOLS_USE_DISTUTILS=stdlib
+
+# Upgrade pip, setuptools, wheel, and install Cython
+$VENV_PATH/bin/pip install --upgrade pip setuptools wheel cython
 
 # Install docker-compose (which depends on PyYAML)
 $VENV_PATH/bin/pip install docker-compose
