@@ -31,6 +31,7 @@ set +a
 # Function to reset database
 reset_database() {
     echo "Resetting database..."
+    docker-compose -f docker-compose.prod.yml exec -T db psql -U "$POSTGRES_USER" -d postgres -c "SELECT pg_terminate_backend(pg_stat_activity.pid) FROM pg_stat_activity WHERE pg_stat_activity.datname = '$POSTGRES_DB' AND pid <> pg_backend_pid();"
     docker-compose -f docker-compose.prod.yml exec -T db psql -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE IF EXISTS $POSTGRES_DB;"
     docker-compose -f docker-compose.prod.yml exec -T db psql -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE $POSTGRES_DB;"
 }
@@ -72,19 +73,19 @@ done
 # Reset database to ensure clean state
 reset_database
 
-echo "Starting web service..."
-docker-compose -f docker-compose.prod.yml up -d web
-
 echo "Running migrations..."
-if ! docker-compose -f docker-compose.prod.yml exec -T web python manage.py migrate; then
+if ! docker-compose -f docker-compose.prod.yml run --rm web python manage.py migrate; then
     echo "❌ First migration attempt failed. Trying to fix..."
     reset_database
-    if ! docker-compose -f docker-compose.prod.yml exec -T web python manage.py migrate; then
+    if ! docker-compose -f docker-compose.prod.yml run --rm web python manage.py migrate; then
         echo "❌ Migration failed again. Checking logs..."
         docker-compose -f docker-compose.prod.yml logs web
         exit 1
     fi
 fi
+
+echo "Starting web service..."
+docker-compose -f docker-compose.prod.yml up -d web
 
 echo "Collecting static files..."
 docker-compose -f docker-compose.prod.yml exec -T web python manage.py collectstatic --noinput || {
