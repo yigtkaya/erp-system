@@ -170,10 +170,6 @@ docker-compose -f docker-compose.prod.yml down -v || true
 echo "Checking for processes using port 80..."
 sudo lsof -i :80 | grep LISTEN | awk '{print $2}' | xargs -r sudo kill -9
 
-# Add before line 175 (docker-compose up command)
-echo "🏗️ Initializing Certbot..."
-docker-compose -f docker-compose.prod.yml run --rm certbot certonly --webroot --webroot-path /var/www/certbot/ -d your-domain.com
-
 # Build and start containers
 echo "🏗️ Building and starting containers..."
 docker-compose -f docker-compose.prod.yml up -d --build
