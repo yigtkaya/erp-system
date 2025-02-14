@@ -114,7 +114,7 @@ echo "Testing Django production server..."
 max_tries=15
 count=0
 while [ $count -lt $max_tries ]; do
-    if curl -s http://localhost:8000/ > /dev/null; then
+    if curl -s http://68.183.213.111/ > /dev/null; then
         echo "✅ Django production server is responding!"
         break
     fi
@@ -128,7 +128,7 @@ while [ $count -lt $max_tries ]; do
 done
 
 echo "✅ Production setup complete! Your application is now running."
-echo "Access your application at: http://localhost:8000/"
+echo "Access your application at: http://68.183.213.111/"
 echo ""
 echo "Useful commands:"
 echo "📋 View logs: docker-compose -f docker-compose.prod.yml logs -f"

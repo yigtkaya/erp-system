@@ -91,7 +91,7 @@ echo "Testing Django development server..."
 max_tries=15
 count=0
 while [ $count -lt $max_tries ]; do
-    if curl -s http://68.183.213.111:8000/admin/ > /dev/null; then
+    if curl -s http://localhost:8000/admin/ > /dev/null; then
         echo "✅ Django server is responding!"
         break
     fi
@@ -105,9 +105,9 @@ while [ $count -lt $max_tries ]; do
 done
 
 echo "✅ Setup complete! You can now access:"
-echo "📝 API Documentation: http://68.183.213.111:8000/swagger/"
-echo "👑 Admin Interface: http://68.183.213.111/admin/"
-echo "🚀 API Interface: http://68.183.213.111:8000/api/"
+echo "📝 API Documentation: http://localhost:8000/swagger/"
+echo "👑 Admin Interface: http://localhost:8000/admin/"
+echo "🚀 API Interface: http://localhost:8000/api/"
 echo ""
 echo "Default superuser credentials:"
 echo "👤 Username: admin"
