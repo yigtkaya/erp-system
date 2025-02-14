@@ -10,7 +10,7 @@ SECRET_KEY = get_env_variable('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
+ALLOWED_HOSTS = os.getenv('DJANGO_ALLOWED_HOSTS', '').split(' ')
 
 # Security settings
 SECURE_SSL_REDIRECT = True
@@ -63,7 +63,7 @@ LOGGING = {
         'file': {
             'level': 'INFO',
             'class': 'logging.FileHandler',
-            'filename': '/var/log/django/erp.log',
+            'filename': '/home/app/web/logs/erp.log',
             'formatter': 'verbose',
         },
         'console': {
@@ -71,15 +71,16 @@ LOGGING = {
             'formatter': 'verbose',
         },
     },
-    'root': {
-        'handlers': ['console', 'file'],
-        'level': 'INFO',
-    },
     'loggers': {
         'django': {
-            'handlers': ['console', 'file'],
+            'handlers': ['file', 'console'],
             'level': 'INFO',
-            'propagate': False,
+            'propagate': True,
+        },
+        'erp_core': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': True,
         },
     },
 }

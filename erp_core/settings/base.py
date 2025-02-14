@@ -78,12 +78,12 @@ WSGI_APPLICATION = 'erp_core.wsgi.application'
 # Database configuration
 DATABASES = {
     'default': {
-        'ENGINE': os.getenv('SQL_ENGINE', 'django.db.backends.postgresql'),
-        'NAME': os.getenv('SQL_DATABASE', 'erp_dev'),
-        'USER': os.getenv('SQL_USER', 'erp_user'),
-        'PASSWORD': os.getenv('SQL_PASSWORD', 'erp_password'),
-        'HOST': os.getenv('SQL_HOST', 'db'),
-        'PORT': os.getenv('SQL_PORT', '5432'),
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': os.getenv('POSTGRES_DB', 'erp_dev'),
+        'USER': os.getenv('POSTGRES_USER', 'erp_user'),
+        'PASSWORD': os.getenv('POSTGRES_PASSWORD', 'erp_password'),
+        'HOST': os.getenv('POSTGRES_HOST', 'db'),
+        'PORT': os.getenv('POSTGRES_PORT', '5432'),
         'OPTIONS': {
             'connect_timeout': int(os.getenv('DB_CONNECT_TIMEOUT', '5')),
         },
