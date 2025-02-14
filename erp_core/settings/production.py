@@ -10,8 +10,7 @@ SECRET_KEY = get_env_variable('SECRET_KEY')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = False
 
-ALLOWED_HOSTS = '68.183.213.111'
-
+ALLOWED_HOSTS = ['68.183.213.111']
 # Security settings
 SECURE_SSL_REDIRECT = False  # Temporarily disabled
 SESSION_COOKIE_SECURE = False  # Temporarily disabled
