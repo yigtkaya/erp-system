@@ -109,14 +109,15 @@ source $VENV_PATH/bin/activate
 # Set the environment variable to use standard library distutils
 export SETUPTOOLS_USE_DISTUTILS=stdlib
 
-# Upgrade pip, setuptools, wheel, and install Cython
-$VENV_PATH/bin/pip install --upgrade pip setuptools wheel cython
+# Upgrade pip, wheel, and install Cython
+$VENV_PATH/bin/pip install --upgrade pip wheel cython
 
-# Downgrade setuptools to avoid PyYAML build issues on Python 3.12
-$VENV_PATH/bin/pip install "setuptools<65"
+# Force downgrade setuptools to a version that is compatible with building PyYAML
+$VENV_PATH/bin/pip install --force-reinstall "setuptools<65"
 
 # Install docker-compose (which depends on PyYAML)
 $VENV_PATH/bin/pip install docker-compose
+check_status "Python dependencies installation"
 
 # Create symlink for docker-compose if not installed via package manager
 if [ ! -f "/usr/local/bin/docker-compose" ]; then
@@ -125,8 +126,6 @@ fi
 
 # Optionally, install docker-compose using pipx for isolated tools
 pipx install docker-compose
-
-check_status "Python dependencies installation"
 
 # Basic security configurations
 echo "Applying basic security configurations..."
