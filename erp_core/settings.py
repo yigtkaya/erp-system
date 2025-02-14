@@ -37,14 +37,7 @@ SECRET_KEY = get_env_variable('SECRET_KEY')
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 
 # ALLOWED_HOSTS configuration
-allowed_hosts = os.getenv('ALLOWED_HOSTS', '')
-if allowed_hosts:
-    ALLOWED_HOSTS = [host.strip() for host in allowed_hosts.split(',') if host.strip()]
-else:
-    ALLOWED_HOSTS = ['localhost', '127.0.0.1']
-
-if DEBUG:
-    ALLOWED_HOSTS.extend(['localhost', '127.0.0.1', '0.0.0.0'])
+ALLOWED_HOSTS = ['68.183.213.111', 'localhost', '127.0.0.1', '*']
 
 print(f"DEBUG: ALLOWED_HOSTS is set to: {ALLOWED_HOSTS}")
 
