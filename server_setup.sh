@@ -105,7 +105,11 @@ echo "Installing Python dependencies..."
 VENV_PATH="/opt/venv"
 python3 -m venv $VENV_PATH
 source $VENV_PATH/bin/activate
-$VENV_PATH/bin/pip install --upgrade pip
+
+# Upgrade pip, setuptools, and wheel to ensure compatibility with Python 3.12
+$VENV_PATH/bin/pip install --upgrade pip setuptools wheel
+
+# Install docker-compose (which depends on PyYAML)
 $VENV_PATH/bin/pip install docker-compose
 
 # Create symlink for docker-compose if not installed via package manager
@@ -113,7 +117,7 @@ if [ ! -f "/usr/local/bin/docker-compose" ]; then
     ln -s $VENV_PATH/bin/docker-compose /usr/local/bin/docker-compose
 fi
 
-# Install pipx for isolated Python applications
+# Optionally, install docker-compose using pipx for isolated tools
 pipx install docker-compose
 
 check_status "Python dependencies installation"
