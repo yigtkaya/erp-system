@@ -72,37 +72,33 @@ echo "⚙️ Creating environment files..."
 # Create .env.prod
 cat > .env.prod << EOL
 # Django
-DEBUG=0
-SECRET_KEY=*u3e%1k&h^if%*fzk7#(=-#f#cwdbeqmx39hakmj-wo414bfyi
-DJANGO_SETTINGS_MODULE=erp_core.settings
-ALLOWED_HOSTS=68.183.213.111
-DATABASE=postgres
+DEBUG=False
+SECRET_KEY="!6l@*-lf#5jed550yx!bt30w)%@&#o+-j*svjuh8@le9%hh+$="
+DJANGO_SETTINGS_MODULE=erp_core.settings.production
+ALLOWED_HOSTS=68.183.213.111,kapsam-erp.vercel.app
+DJANGO_ADMIN_URL=admin
 
 # Security
-CSRF_TRUSTED_ORIGINS=http://68.183.213.111
-SECURE_SSL_REDIRECT=0
-SESSION_COOKIE_SECURE=0
-CSRF_COOKIE_SECURE=0
-SECURE_HSTS_SECONDS=0
-SECURE_HSTS_INCLUDE_SUBDOMAINS=0
-SECURE_HSTS_PRELOAD=0
+CSRF_TRUSTED_ORIGINS=http://68.183.213.111,https://kapsam-erp.vercel.app
+SECURE_SSL_REDIRECT=False
+SESSION_COOKIE_SECURE=False
+CSRF_COOKIE_SECURE=False
+SECURE_HSTS_SECONDS=31536000
+SECURE_HSTS_INCLUDE_SUBDOMAINS=True
+SECURE_HSTS_PRELOAD=True
 SECURE_REFERRER_POLICY=same-origin
+SECURE_PROXY_SSL_HEADER=('HTTP_X_FORWARDED_PROTO', 'https')
 
-# Database
-DB_NAME=erp_prod
-DB_USER=erp_admin
-DB_PASSWORD=erp_password
-DB_HOST=db
-DB_PORT=5432
-DB_CONNECT_TIMEOUT=5
-
-# PostgreSQL
+# PostgreSQL Database Configuration
 POSTGRES_DB=erp_prod
 POSTGRES_USER=erp_admin
 POSTGRES_PASSWORD=erp_password
+POSTGRES_HOST=db
+POSTGRES_PORT=5432
+DB_CONNECT_TIMEOUT=5
 
 # Redis
-REDIS_URL=redis://redis:6379/0
+REDIS_URL=redis://redis:6379/1
 REDIS_CONNECT_TIMEOUT=5
 REDIS_SOCKET_TIMEOUT=5
 
@@ -125,9 +121,33 @@ LOGIN_URL=login
 LOGIN_REDIRECT_URL=home
 LOGOUT_REDIRECT_URL=login
 
+# Email
+EMAIL_HOST=smtp.your-email-provider.com
+EMAIL_PORT=587
+EMAIL_USE_TLS=1
+EMAIL_HOST_USER=your-email@domain.com
+EMAIL_HOST_PASSWORD=your-email-password
+
 # File Storage
 MEDIA_ROOT=/home/app/web/media
 STATIC_ROOT=/home/app/web/staticfiles
+
+# CLOUDFLARE R2 settings
+CLOUDFLARE_R2_ACCESS_KEY=a0ed21e3517b7d8b3658bee5cf1d5d1d
+CLOUDFLARE_R2_SECRET_KEY=ac2ea29cd00e525e7d6ede8e4c43fddd299a501c68c8ae177bccaf2b90664b8f
+CLOUDFLARE_R2_BUCKET_NAME=kapsammakina
+CLOUDFLARE_R2_BUCKET_ENDPOINT=https://c8149980d3283c2362a57216a4b63281.r2.cloudflarestorage.com
+
+# Email settings
+MAILGUN_API_KEY=your-production-mailgun-api-key
+MAILGUN_SENDER_DOMAIN=your-domain.com
+
+# CORS settings
+CORS_ALLOWED_ORIGINS=https://kapsam-erp.vercel.app
+CORS_ALLOW_CREDENTIALS=True
+CORS_EXPOSE_HEADERS=Content-Type,Authorization
+
+
 EOL
 
 # Create .env.prod.db
