@@ -37,7 +37,7 @@ apt-get install -y \
     python3-pip \
     python3-dev \
     nginx \
-    netcat \
+    netcat-openbsd \
     ufw \
     fail2ban \
     git
