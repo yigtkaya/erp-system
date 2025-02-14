@@ -69,6 +69,9 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('', home, name='home'),
     
+    # Health Check URL
+    path('health/', health_check, name='health_check'),
+    
     # Authentication URLs
     path('auth/login/', login_view, name='login'),
     path('auth/logout/', logout_view, name='logout'),

@@ -1,11 +1,35 @@
 #!/bin/bash
 
+# Exit on error
+set -e
+
+# Check if script is run as root
+if [ "$EUID" -ne 0 ]; then 
+    echo "Please run as root (use sudo)"
+    exit 1
+fi
+
+echo "Starting server setup..."
+
+# Function to check command status
+check_status() {
+    if [ $? -eq 0 ]; then
+        echo "✅ $1 successful"
+    else
+        echo "❌ $1 failed"
+        exit 1
+    fi
+}
+
 # Update system
-sudo apt-get update
-sudo apt-get upgrade -y
+echo "Updating system packages..."
+apt-get update
+apt-get upgrade -y
+check_status "System update"
 
 # Install required packages
-sudo apt-get install -y \
+echo "Installing required packages..."
+apt-get install -y \
     apt-transport-https \
     ca-certificates \
     curl \
@@ -13,29 +37,93 @@ sudo apt-get install -y \
     python3-pip \
     python3-dev \
     nginx \
-    netcat
+    netcat \
+    ufw \
+    fail2ban \
+    git
+check_status "Package installation"
 
 # Install Docker
-curl -fsSL https://get.docker.com -o get-docker.sh
-sudo sh get-docker.sh
+echo "Installing Docker..."
+if ! command -v docker &> /dev/null; then
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sh get-docker.sh
+    check_status "Docker installation"
+else
+    echo "Docker already installed"
+fi
 
 # Install Docker Compose
-sudo curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
-sudo chmod +x /usr/local/bin/docker-compose
+echo "Installing Docker Compose..."
+if ! command -v docker-compose &> /dev/null; then
+    curl -L "https://github.com/docker/compose/releases/latest/download/docker-compose-$(uname -s)-$(uname -m)" -o /usr/local/bin/docker-compose
+    chmod +x /usr/local/bin/docker-compose
+    check_status "Docker Compose installation"
+else
+    echo "Docker Compose already installed"
+fi
 
 # Add user to docker group
-sudo usermod -aG docker $USER
+usermod -aG docker $SUDO_USER
+check_status "User added to docker group"
 
-# Create app directory
-sudo mkdir -p /app
-sudo chown $USER:$USER /app
+# Create necessary directories
+echo "Creating application directories..."
+mkdir -p /app
+mkdir -p /var/log/django
+mkdir -p /app/nginx/certbot/conf
+mkdir -p /app/nginx/certbot/www
+
+# Set proper permissions
+chown -R $SUDO_USER:$SUDO_USER /app
+chown -R $SUDO_USER:$SUDO_USER /var/log/django
+chmod -R 755 /var/log/django
+check_status "Directory setup"
+
+# Configure UFW
+echo "Configuring firewall..."
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow ssh
+ufw allow http
+ufw allow https
+ufw --force enable
+check_status "Firewall configuration"
+
+# Configure fail2ban
+echo "Configuring fail2ban..."
+systemctl enable fail2ban
+systemctl start fail2ban
+check_status "Fail2ban configuration"
 
 # Install Python dependencies
+echo "Installing Python dependencies..."
 pip3 install docker-compose
+check_status "Python dependencies installation"
 
-# Basic firewall setup
-sudo ufw allow OpenSSH
-sudo ufw allow 80
-sudo ufw --force enable
+# Basic security configurations
+echo "Applying basic security configurations..."
+# Disable root login via SSH
+sed -i 's/PermitRootLogin yes/PermitRootLogin no/' /etc/ssh/sshd_config
+# Allow only SSH key authentication
+sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
+systemctl restart sshd
+check_status "Security configurations"
 
-echo "Server setup completed! Please log out and log back in for docker group changes to take effect." 
+echo "✅ Server setup completed!"
+echo ""
+echo "🔧 Next steps:"
+echo "1. Log out and log back in for docker group changes to take effect"
+echo "2. Copy your project files to /app"
+echo "3. Set up SSL certificates using certbot"
+echo "4. Configure your environment variables"
+echo ""
+echo "🚀 To deploy your application:"
+echo "1. cd /app"
+echo "2. docker-compose -f docker-compose.prod.yml up -d"
+echo ""
+echo "🔒 Security notes:"
+echo "- SSH root login has been disabled"
+echo "- Password authentication has been disabled (use SSH keys)"
+echo "- UFW is configured to allow only SSH, HTTP, and HTTPS"
+echo "- Fail2ban is active for additional security" 
