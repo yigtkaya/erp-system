@@ -3,6 +3,8 @@ from django.core.exceptions import ValidationError
 from erp_core.models import BaseModel, User, Customer, ProductType, MaterialType
 from django.core.validators import MinValueValidator
 import pathlib 
+from django.db.models import Sum
+from django.apps import apps
 
 class InventoryCategory(models.Model):
     CATEGORY_CHOICES = [
@@ -65,6 +67,48 @@ class Product(BaseModel):
     
     def __str__(self):
         return f"{self.product_code} - {self.product_name}"
+
+    @property
+    def in_process_quantity_by_process(self):
+        """
+        Returns a dictionary mapping each manufacturing process to the pending quantity
+        for this semi-finished product. It computes the pending amount from each sub work order,
+        grouping by the process code from the BOM component's process configuration.
+        """
+        if self.product_type != 'SEMI':
+            return {}
+
+        result = {}
+
+        # Get BOM components where this product is used as a semi-finished product
+        components = apps.get_model('manufacturing', 'BOMComponent').objects.filter(semi_product=self)
+
+        # Get in-progress work orders related to these components
+        work_orders = apps.get_model('manufacturing', 'WorkOrder').objects.filter(
+            bom__components__in=components, status='IN_PROGRESS'
+        ).distinct()
+
+        for work_order in work_orders:
+            # We assume the reverse relation from WorkOrder to SubWorkOrder is named 'sub_orders'
+            sub_work_orders = work_order.sub_orders.filter(bom_component__semi_product=self)
+            for sub_order in sub_work_orders:
+                process_config = sub_order.bom_component.process_config
+                # Use the process code from the manufacturing process if available
+                process_name = (
+                    process_config.process.process_code
+                    if process_config and hasattr(process_config, 'process')
+                    else 'Unknown Process'
+                )
+                scheduled_qty = sub_order.quantity  # planned quantity for this sub work order
+                completed_qty = apps.get_model('manufacturing', 'WorkOrderOutput').objects.filter(
+                    sub_work_order=sub_order, status='GOOD'
+                ).aggregate(total=Sum('quantity'))['total'] or 0
+                pending_qty = scheduled_qty - completed_qty
+
+                if pending_qty > 0:
+                    result[process_name] = result.get(process_name, 0) + pending_qty
+
+        return result
 
 class TechnicalDrawing(BaseModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE)

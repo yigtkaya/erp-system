@@ -34,6 +34,7 @@ class TechnicalDrawingListSerializer(serializers.ModelSerializer):
 class ProductSerializer(serializers.ModelSerializer):
     technical_drawings = TechnicalDrawingListSerializer(source='technicaldrawing_set', many=True, read_only=True)
     inventory_category_display = serializers.CharField(source='inventory_category.get_name_display', read_only=True)
+    in_process_quantity_by_process = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
@@ -41,8 +42,11 @@ class ProductSerializer(serializers.ModelSerializer):
             'id', 'product_code', 'product_name', 'product_type',
             'description', 'current_stock',
             'inventory_category', 'inventory_category_display',
-            'technical_drawings', 'created_at', 'modified_at'
+            'technical_drawings', 'created_at', 'modified_at', 'in_process_quantity_by_process'
         ]
+
+    def get_in_process_quantity_by_process(self, obj):
+        return obj.in_process_quantity_by_process
 
 class TechnicalDrawingDetailSerializer(serializers.ModelSerializer):
     drawing_url = serializers.SerializerMethodField()

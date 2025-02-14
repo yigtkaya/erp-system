@@ -1,7 +1,6 @@
 from django.db import models
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
-from inventory.models import Product, RawMaterial
 from erp_core.models import BaseModel, User, Customer, ProductType, ComponentType, MachineStatus, WorkOrderStatus
 from sales.models import SalesOrderItem
 from datetime import datetime, timedelta
@@ -74,7 +73,7 @@ class BOMProcessConfig(models.Model):
         return f"{self.process.process_code} - {self.machine_type}"
 
 class BOM(BaseModel):
-    product = models.ForeignKey(Product, on_delete=models.PROTECT)
+    product = models.ForeignKey('inventory.Product', on_delete=models.PROTECT)
     version = models.CharField(max_length=20, default='1.0')
     is_active = models.BooleanField(default=True)
 
@@ -93,14 +92,14 @@ class BOMComponent(models.Model):
     bom = models.ForeignKey(BOM, on_delete=models.CASCADE, related_name='components')
     component_type = models.CharField(max_length=30, choices=ComponentType.choices)
     semi_product = models.ForeignKey(
-        Product,
+        'inventory.Product',
         on_delete=models.PROTECT,
         null=True,
         blank=True,
         related_name='semi_components'
     )
     raw_material = models.ForeignKey(
-        RawMaterial,
+        'inventory.RawMaterial',
         on_delete=models.PROTECT,
         null=True,
         blank=True,
@@ -108,7 +107,7 @@ class BOMComponent(models.Model):
     )
     process_config = models.ForeignKey(BOMProcessConfig, on_delete=models.PROTECT, null=True, blank=True)
     standard_part = models.ForeignKey(
-        Product,
+        'inventory.Product',
         on_delete=models.PROTECT,
         null=True,
         blank=True,
