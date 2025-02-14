@@ -3,8 +3,9 @@
 # Exit on error
 set -e
 
-# Create log directory if it doesn't exist
+# Create log directory if it doesn't exist and ensure proper permissions
 mkdir -p /home/app/web/logs
+chmod -R 777 /home/app/web/logs
 
 # Wait for postgres
 if [ "$DATABASE" = "postgres" ]

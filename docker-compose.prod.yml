@@ -9,7 +9,7 @@ services:
     volumes:
       - static_volume:/home/app/web/staticfiles
       - media_volume:/home/app/web/media
-      - ./logs:/home/app/web/logs
+      - log_volume:/home/app/web/logs
     expose:
       - 8000
     environment:
@@ -74,6 +74,7 @@ volumes:
   redis_data:
   static_volume:
   media_volume:
+  log_volume:
 
 networks:
   erp_network:
