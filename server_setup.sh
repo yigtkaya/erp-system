@@ -112,6 +112,9 @@ export SETUPTOOLS_USE_DISTUTILS=stdlib
 # Upgrade pip, setuptools, wheel, and install Cython
 $VENV_PATH/bin/pip install --upgrade pip setuptools wheel cython
 
+# Downgrade setuptools to avoid PyYAML build issues on Python 3.12
+$VENV_PATH/bin/pip install "setuptools<65"
+
 # Install docker-compose (which depends on PyYAML)
 $VENV_PATH/bin/pip install docker-compose
 
