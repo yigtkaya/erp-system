@@ -5,6 +5,7 @@ Base settings for ERP System project.
 from pathlib import Path
 import os
 from django.core.exceptions import ImproperlyConfigured
+from datetime import timedelta
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -105,14 +106,18 @@ CACHES = {
 
 # Django Axes Configuration
 AXES_FAILURE_LIMIT = 5  # Number of login attempts before lockout
-AXES_COOLOFF_TIME = 1  # 1 hour lockout
-AXES_RESET_ON_SUCCESS = True  # Reset the number of failed attempts on successful login
-AXES_LOCKOUT_URL = '/auth/login/'  # Redirect to login page on lockout
-AXES_USE_USER_AGENT = True  # Include user agent in lockout criteria
-AXES_LOCK_OUT_BY_COMBINATION_USER_AND_IP = True  # Lock out based on both username and IP
-AXES_BEHIND_REVERSE_PROXY = False  # Set to True if behind a reverse proxy
-AXES_ENABLE_ADMIN = True  # Enable Axes admin interface
-AXES_HANDLER = 'axes.handlers.database.AxesDatabaseHandler'  # Use database handler for persistence
+AXES_COOLOFF_TIME = timedelta(hours=1)  # Must use timedelta for production
+AXES_RESET_ON_SUCCESS = True
+AXES_LOCKOUT_URL = '/auth/login/'
+AXES_ENABLED = True
+AXES_HANDLER = 'axes.handlers.database.AxesDatabaseHandler'
+AXES_LOCK_OUT_AT_FAILURE = True
+AXES_LOCKOUT_PARAMETERS = ['username', 'ip_address']  # Modern way to specify lockout parameters
+AXES_IPWARE_PROXY_COUNT = 1  # Modern way to specify proxy count
+AXES_IPWARE_META_PRECEDENCE_ORDER = [
+    'HTTP_X_FORWARDED_FOR',
+    'REMOTE_ADDR',
+]
 
 # Authentication Backends
 AUTHENTICATION_BACKENDS = [

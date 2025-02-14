@@ -327,7 +327,18 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_BROWSER_XSS_FILTER = True
 X_FRAME_OPTIONS = 'DENY'
 
+# Django Axes Configuration
 AXES_FAILURE_LIMIT = 5
-AXES_COOLOFF_TIME = 1  # 1 hour lockout
-AXES_LOCKOUT_PARAMETERS = ['ip_address', 'username']
+AXES_COOLOFF_TIME = timedelta(hours=1)
+AXES_ENABLED = True
+AXES_HANDLER = 'axes.handlers.database.AxesDatabaseHandler'
+AXES_LOCK_OUT_AT_FAILURE = True
+AXES_LOCKOUT_PARAMETERS = ['username', 'ip_address']
+AXES_IPWARE_PROXY_COUNT = 1
+AXES_IPWARE_META_PRECEDENCE_ORDER = [
+    'HTTP_X_FORWARDED_FOR',
+    'REMOTE_ADDR',
+]
+AXES_RESET_ON_SUCCESS = True
+AXES_LOCKOUT_URL = '/auth/login/'
 DEFENDER_REDIS_URL = "redis://redis:6379/0"

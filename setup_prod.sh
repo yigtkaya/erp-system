@@ -28,6 +28,13 @@ set -a
 source .env.prod
 set +a
 
+# Function to reset database
+reset_database() {
+    echo "Resetting database..."
+    docker-compose -f docker-compose.prod.yml exec -T db psql -U "$POSTGRES_USER" -d postgres -c "DROP DATABASE IF EXISTS $POSTGRES_DB;"
+    docker-compose -f docker-compose.prod.yml exec -T db psql -U "$POSTGRES_USER" -d postgres -c "CREATE DATABASE $POSTGRES_DB;"
+}
+
 # Create Docker network if it doesn't exist
 echo "Setting up Docker network..."
 docker network inspect erp_network >/dev/null 2>&1 || \
@@ -47,7 +54,7 @@ echo "Waiting for database to be ready..."
 max_tries=30
 count=0
 while [ $count -lt $max_tries ]; do
-    if docker-compose -f docker-compose.prod.yml exec db pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"; then
+    if docker-compose -f docker-compose.prod.yml exec db pg_isready -U "$POSTGRES_USER" -d postgres; then
         echo "✅ Database is ready!"
         break
     fi
@@ -62,15 +69,22 @@ while [ $count -lt $max_tries ]; do
     sleep 2
 done
 
+# Reset database to ensure clean state
+reset_database
+
 echo "Starting web service..."
 docker-compose -f docker-compose.prod.yml up -d web
 
 echo "Running migrations..."
-docker-compose -f docker-compose.prod.yml exec -T web python manage.py migrate || {
-    echo "❌ Migration failed. Checking logs..."
-    docker-compose -f docker-compose.prod.yml logs web
-    exit 1
-}
+if ! docker-compose -f docker-compose.prod.yml exec -T web python manage.py migrate; then
+    echo "❌ First migration attempt failed. Trying to fix..."
+    reset_database
+    if ! docker-compose -f docker-compose.prod.yml exec -T web python manage.py migrate; then
+        echo "❌ Migration failed again. Checking logs..."
+        docker-compose -f docker-compose.prod.yml logs web
+        exit 1
+    fi
+fi
 
 echo "Collecting static files..."
 docker-compose -f docker-compose.prod.yml exec -T web python manage.py collectstatic --noinput || {
