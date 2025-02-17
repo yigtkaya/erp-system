@@ -102,6 +102,9 @@ urlpatterns = [
 
     # Inventory App URLs
     path('api/inventory/', include('inventory.urls')),
+    
+    # Sales App URLs
+    path('api/sales/', include('sales.urls')),
 ]
 
 if settings.DEBUG:

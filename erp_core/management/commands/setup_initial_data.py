@@ -1,5 +1,5 @@
 from django.core.management.base import BaseCommand
-from erp_core.models import Customer
+from erp_core.models import Customer, ProductType
 from inventory.models import InventoryCategory, UnitOfMeasure, Product, RawMaterial
 from manufacturing.models import Machine, ManufacturingProcess, MachineType
 
@@ -60,12 +60,14 @@ class Command(BaseCommand):
                 }
             )
 
-        # Create products
+        # Create regular products
         mamul_category = InventoryCategory.objects.get(name='MAMUL')
+        pcs_unit = UnitOfMeasure.objects.get(unit_code='PCS')
+
         products = [
-            {'product_code': 'P001', 'product_name': 'Metal Cabinet', 'current_stock': 50},
-            {'product_code': 'P002', 'product_name': 'Aluminum Frame', 'current_stock': 100},
-            {'product_code': 'P003', 'product_name': 'Plastic Container', 'current_stock': 200},
+            {'product_code': 'P001', 'product_name': 'Metal Cabinet', 'current_stock': 50, 'unit': pcs_unit},
+            {'product_code': 'P002', 'product_name': 'Aluminum Frame', 'current_stock': 100, 'unit': pcs_unit},
+            {'product_code': 'P003', 'product_name': 'Plastic Container', 'current_stock': 200, 'unit': pcs_unit},
         ]
 
         for product in products:
@@ -75,7 +77,45 @@ class Command(BaseCommand):
                     'product_name': product['product_name'],
                     'product_type': 'MONTAGED',
                     'current_stock': product['current_stock'],
-                    'inventory_category': mamul_category
+                    'inventory_category': mamul_category,
+                    'unit': product['unit']
+                }
+            )
+
+        # Add Standard Parts section
+        standard_products = [
+            {
+                'product_code': 'SP001',
+                'product_name': 'Standard Bolt',
+                'current_stock': 1000,
+                'unit': pcs_unit,
+                'inventory_category': hammadde_category
+            },
+            {
+                'product_code': 'SP002',
+                'product_name': 'Steel Nut',
+                'current_stock': 1500,
+                'unit': pcs_unit,
+                'inventory_category': hammadde_category
+            },
+            {
+                'product_code': 'SP003',
+                'product_name': 'Plastic Washer',
+                'current_stock': 2000,
+                'unit': pcs_unit,
+                'inventory_category': hammadde_category
+            },
+        ]
+
+        for sp in standard_products:
+            Product.objects.get_or_create(
+                product_code=sp['product_code'],
+                defaults={
+                    'product_name': sp['product_name'],
+                    'product_type': ProductType.STANDARD_PART,
+                    'current_stock': sp['current_stock'],
+                    'inventory_category': sp['inventory_category'],
+                    'unit': sp['unit']
                 }
             )
 
@@ -127,4 +167,4 @@ class Command(BaseCommand):
                 name=customer['name']
             )
 
-        self.stdout.write(self.style.SUCCESS('Successfully set up initial data')) 
+        self.stdout.write(self.style.SUCCESS('Successfully set up initial data including standard parts')) 

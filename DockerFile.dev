@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y \
     python3-dev \
     libpq-dev \
     netcat-openbsd \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -19,7 +20,8 @@ COPY . .
 
 # Make entrypoint executable and create static directory
 RUN chmod +x entrypoint.dev.sh && \
-    mkdir -p /app/static
+    mkdir -p /app/staticfiles && \
+    mkdir -p /app/media
 
 # Don't run collectstatic during build
 # It will be run by the entrypoint script instead

@@ -16,6 +16,26 @@ dev_test:
 dev_superuser:
 	@docker-compose -f docker-compose.dev.yml exec web python manage.py createsuperuser
 
+prod_up:
+	@docker-compose -f docker-compose.prod.yml up --build
+
+prod_down:
+	@docker-compose -f docker-compose.prod.yml down -v
+
+prod_shell:
+	@docker-compose -f docker-compose.prod.yml exec web bash
+
+prod_migrate:
+		@docker-compose -f docker-compose.prod.yml exec web python manage.py migrate
+
+prod_test:
+	@docker-compose -f docker-compose.prod.yml exec web python manage.py test
+
+prod_superuser:
+	@docker-compose -f docker-compose.prod.yml exec web python manage.py createsuperuser
+
+
+
 ## For manual backup:
 ./backup.sh
 
