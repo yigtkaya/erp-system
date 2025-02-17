@@ -319,15 +319,15 @@ class Command(BaseCommand):
 
                 for order_data in self.get_orders_data():
                     try:
-                        # Get or create customer with code as name
+                        # Get or create customer
                         customer, _ = Customer.objects.get_or_create(
                             code=order_data['customer_code'],
                             defaults={
-                                'name': order_data['customer_code']  # Using code as name
+                                'name': f"Customer {order_data['customer_code']}"
                             }
                         )
 
-                        # Get or create product with stock_code and stock_name
+                        # Get or create product
                         product, _ = Product.objects.get_or_create(
                             code=order_data['stock_code'],
                             defaults={
@@ -344,32 +344,23 @@ class Command(BaseCommand):
                         
                         order_status = status_mapping.get(order_data['status'].lower(), 'PENDING_APPROVAL')
 
-                        # Parse dates with fallback
-                        order_date = self.parse_date(order_data['order_receiving_date'])
-                        deadline_date = self.parse_date(order_data['deadline_date'])
-                        
-                        if not order_date:
-                            order_date = datetime.now().date()
-                        if not deadline_date:
-                            deadline_date = order_date  # Use order date as deadline if not specified
-
                         # Create or update sales order
-                        defaults = {
-                            'customer': customer,
-                            'order_date': order_date,
-                            'deadline_date': deadline_date,
-                            'status': order_status
-                        }
-
                         order, created = SalesOrder.objects.get_or_create(
                             order_number=order_data['order_no'],
-                            defaults=defaults
+                            defaults={
+                                'customer': customer,
+                                'order_date': self.parse_date(order_data['order_receiving_date']) or datetime.now().date(),
+                                'deadline_date': self.parse_date(order_data['deadline_date']) or datetime.now().date(),
+                                'status': order_status
+                            }
                         )
 
                         if not created:
                             # Update existing order
-                            for key, value in defaults.items():
-                                setattr(order, key, value)
+                            order.customer = customer
+                            order.order_date = self.parse_date(order_data['order_receiving_date']) or order.order_date
+                            order.deadline_date = self.parse_date(order_data['deadline_date']) or order.deadline_date
+                            order.status = order_status
                             order.save()
 
                         # Create or update sales order item
