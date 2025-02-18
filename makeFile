@@ -43,6 +43,14 @@ load_data:
 	@docker-compose -f docker-compose.prod.yml exec web python manage.py load_single_parts
 	@docker-compose -f docker-compose.prod.yml exec web python manage.py load_montaged_products
 
+load_data_dev:
+	@# For development (after migrations):
+	@docker-compose -f docker-compose.dev.yml exec web python manage.py load_inventory_data
+	@docker-compose -f docker-compose.dev.yml exec web python manage.py load_raw_materials
+	@docker-compose -f docker-compose.dev.yml exec web python manage.py load_standard_parts
+	@docker-compose -f docker-compose.dev.yml exec web python manage.py load_semi_finished_products 
+	@docker-compose -f docker-compose.dev.yml exec web python manage.py load_single_parts
+	@docker-compose -f docker-compose.dev.yml exec web python manage.py load_montaged_products
 
 ## For manual backup:
 ./backup.sh

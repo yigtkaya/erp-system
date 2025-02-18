@@ -63,15 +63,49 @@ class ProductViewSet(viewsets.ModelViewSet):
         product_code = self.request.query_params.get('product_code', None)
         product_name = self.request.query_params.get('product_name', None)
 
+        # Dimension range filters
+        width_min = self.request.query_params.get('width_min', None)
+        width_max = self.request.query_params.get('width_max', None)
+        height_min = self.request.query_params.get('height_min', None)
+        height_max = self.request.query_params.get('height_max', None)
+        thickness_min = self.request.query_params.get('thickness_min', None)
+        thickness_max = self.request.query_params.get('thickness_max', None)
+        diameter_min = self.request.query_params.get('diameter_min', None)
+        diameter_max = self.request.query_params.get('diameter_max', None)
+
         try:
             if category:
                 queryset = queryset.filter(inventory_category__name=category)
             if product_type:
                 queryset = queryset.filter(product_type=product_type)
             if product_code:
-                queryset = queryset.filter(product_code=product_code)
+                queryset = queryset.filter(product_code__icontains=product_code)
             if product_name:
                 queryset = queryset.filter(product_name__icontains=product_name)
+            
+            # Apply dimension range filters
+            if width_min is not None:
+                queryset = queryset.filter(width__gte=float(width_min))
+            if width_max is not None:
+                queryset = queryset.filter(width__lte=float(width_max))
+            
+            if height_min is not None:
+                queryset = queryset.filter(height__gte=float(height_min))
+            if height_max is not None:
+                queryset = queryset.filter(height__lte=float(height_max))
+            
+            if thickness_min is not None:
+                queryset = queryset.filter(thickness__gte=float(thickness_min))
+            if thickness_max is not None:
+                queryset = queryset.filter(thickness__lte=float(thickness_max))
+            
+            if diameter_min is not None:
+                queryset = queryset.filter(diameter_mm__gte=float(diameter_min))
+            if diameter_max is not None:
+                queryset = queryset.filter(diameter_mm__lte=float(diameter_max))
+
+        except ValueError as e:
+            raise ValidationError(f"Invalid numeric value in dimension filters: {str(e)}")
         except Exception as e:
             raise ValidationError(f"Invalid filter parameters: {str(e)}")
 
@@ -107,6 +141,63 @@ class ProductViewSet(viewsets.ModelViewSet):
                 description="Filter by product name (case-insensitive partial match)",
                 type=openapi.TYPE_STRING,
                 required=False
+            ),
+            # Dimension range filter parameters
+            openapi.Parameter(
+                'width_min',
+                openapi.IN_QUERY,
+                description="Minimum width value",
+                type=openapi.TYPE_NUMBER,
+                required=False
+            ),
+            openapi.Parameter(
+                'width_max',
+                openapi.IN_QUERY,
+                description="Maximum width value",
+                type=openapi.TYPE_NUMBER,
+                required=False
+            ),
+            openapi.Parameter(
+                'height_min',
+                openapi.IN_QUERY,
+                description="Minimum height value",
+                type=openapi.TYPE_NUMBER,
+                required=False
+            ),
+            openapi.Parameter(
+                'height_max',
+                openapi.IN_QUERY,
+                description="Maximum height value",
+                type=openapi.TYPE_NUMBER,
+                required=False
+            ),
+            openapi.Parameter(
+                'thickness_min',
+                openapi.IN_QUERY,
+                description="Minimum thickness value",
+                type=openapi.TYPE_NUMBER,
+                required=False
+            ),
+            openapi.Parameter(
+                'thickness_max',
+                openapi.IN_QUERY,
+                description="Maximum thickness value",
+                type=openapi.TYPE_NUMBER,
+                required=False
+            ),
+            openapi.Parameter(
+                'diameter_min',
+                openapi.IN_QUERY,
+                description="Minimum diameter value (in mm)",
+                type=openapi.TYPE_NUMBER,
+                required=False
+            ),
+            openapi.Parameter(
+                'diameter_max',
+                openapi.IN_QUERY,
+                description="Maximum diameter value (in mm)",
+                type=openapi.TYPE_NUMBER,
+                required=False
             )
         ],
         responses={
@@ -117,18 +208,7 @@ class ProductViewSet(viewsets.ModelViewSet):
         tags=['Products']
     )
     def list(self, request, *args, **kwargs):
-        try:
-            return super().list(request, *args, **kwargs)
-        except ValidationError as e:
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        except Exception as e:
-            return Response(
-                {'error': 'Internal server error occurred', 'detail': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+        return super().list(request, *args, **kwargs)
 
     @swagger_auto_schema(
         operation_description="Create a new product",
@@ -372,7 +452,7 @@ class RawMaterialViewSet(viewsets.ModelViewSet):
         if category:
             queryset = queryset.filter(inventory_category__name=category)
         if material_code:
-            queryset = queryset.filter(material_code=material_code)
+            queryset = queryset.filter(material_code__icontains=material_code)
         if material_name:
             queryset = queryset.filter(material_name__icontains=material_name)
 
