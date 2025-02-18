@@ -92,24 +92,25 @@ class UserSerializer(serializers.ModelSerializer):
     def update(self, instance, validated_data):
         profile_data = validated_data.pop('profile', None)
         password = validated_data.pop('password', None)
-        validated_data.pop('confirm_password', None)
         
+        # Update user fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
-            
+        
         if password:
             instance.set_password(password)
-            
+        
         instance.save()
         
-        if profile_data and hasattr(instance, 'profile'):
+        # Ensure profile exists
+        if not hasattr(instance, 'profile'):
+            UserProfile.objects.create(user=instance)
+        
+        # Update profile if data is provided
+        if profile_data is not None:
             profile = instance.profile
-            if 'department_id' in profile_data:
-                profile.department_id = profile_data['department_id']
-            if 'phone_number' in profile_data:
-                profile.phone_number = profile_data['phone_number']
-            if 'employee_id' in profile_data:
-                profile.employee_id = profile_data['employee_id']
+            for field, value in profile_data.items():
+                setattr(profile, field, value)
             profile.save()
-            
+        
         return instance

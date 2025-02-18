@@ -68,9 +68,30 @@ class User(AbstractUser):
         ).distinct()
 
     def save(self, *args, **kwargs):
-        if not self.pk:  # Only on creation
+        is_new = self.pk is None
+        if is_new:  # Only on creation
             self.set_password(self.password)
         super().save(*args, **kwargs)
+        
+        if is_new or not hasattr(self, 'profile'):
+            # Generate a unique employee ID
+            latest_profile = UserProfile.objects.order_by('-employee_id').first()
+            if latest_profile and latest_profile.employee_id.startswith('EMP'):
+                try:
+                    last_num = int(latest_profile.employee_id[3:])
+                    new_num = last_num + 1
+                except ValueError:
+                    new_num = 1
+            else:
+                new_num = 1
+            
+            employee_id = f'EMP{new_num:04d}'
+            
+            # Create the profile with the generated employee_id
+            UserProfile.objects.create(
+                user=self,
+                employee_id=employee_id
+            )
 
 class BaseModel(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
@@ -120,8 +141,15 @@ class UserProfile(models.Model):
     employee_id = models.CharField(max_length=50, unique=True)
     is_department_head = models.BooleanField(default=False)
 
+    class Meta:
+        ordering = ['-employee_id']
+
     def __str__(self):
         return f"{self.user.username}'s Profile"
+
+    def clean(self):
+        if not self.employee_id:
+            raise ValidationError({'employee_id': 'Employee ID cannot be empty'})
 
 class RolePermission(models.Model):
     role = models.CharField(max_length=20, choices=UserRole.choices)
