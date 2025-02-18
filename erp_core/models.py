@@ -67,6 +67,11 @@ class User(AbstractUser):
             Q(user=self)
         ).distinct()
 
+    def save(self, *args, **kwargs):
+        if not self.pk:  # Only on creation
+            self.set_password(self.password)
+        super().save(*args, **kwargs)
+
 class BaseModel(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     modified_at = models.DateTimeField(default=timezone.now)

@@ -65,20 +65,17 @@ class UserViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         
-        # Create the user with an unusable password
+        # Create user with regular password
         user = serializer.save()
-        user.set_unusable_password()
-        user.save()
         
-        # Send password creation email
-        email_sent = send_password_creation_email(user, request)
+        # Manually set password if provided
+        if 'password' in request.data:
+            user.set_password(request.data['password'])
+            user.save()
         
         headers = self.get_success_headers(serializer.data)
-        response_data = serializer.data
-        response_data['password_email_sent'] = email_sent
-        
         return Response(
-            response_data,
+            serializer.data,
             status=status.HTTP_201_CREATED,
             headers=headers
         )

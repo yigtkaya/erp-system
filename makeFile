@@ -34,6 +34,14 @@ prod_test:
 prod_superuser:
 	@docker-compose -f docker-compose.prod.yml exec web python manage.py createsuperuser
 
+load_data:
+	@# For production (after migrations):
+	@docker-compose -f docker-compose.prod.yml exec web python manage.py load_inventory_data
+	@docker-compose -f docker-compose.prod.yml exec web python manage.py load_raw_materials
+	@docker-compose -f docker-compose.prod.yml exec web python manage.py load_standard_parts
+	@docker-compose -f docker-compose.prod.yml exec web python manage.py load_semi_finished_products 
+	@docker-compose -f docker-compose.prod.yml exec web python manage.py load_single_parts
+	@docker-compose -f docker-compose.prod.yml exec web python manage.py load_montaged_products
 
 
 ## For manual backup:

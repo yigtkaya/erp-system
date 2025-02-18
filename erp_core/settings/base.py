@@ -169,15 +169,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Email Configuration
-EMAIL_BACKEND = "anymail.backends.mailgun.EmailBackend"
-DEFAULT_FROM_EMAIL = f"noreply@{os.getenv('MAILGUN_SENDER_DOMAIN')}"
-SERVER_EMAIL = f"server@{os.getenv('MAILGUN_SENDER_DOMAIN')}"
-
-ANYMAIL = {
-    "MAILGUN_API_KEY": os.getenv('MAIL_GUN_API_KEY'),
-    "MAILGUN_SENDER_DOMAIN": os.getenv('MAILGUN_SENDER_DOMAIN'),
-    "MAILGUN_API_URL": "https://api.mailgun.net/v3",
-}
+EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
 
 # Login/Logout Settings
 LOGIN_URL = 'login'
