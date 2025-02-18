@@ -19,7 +19,6 @@ from .serializers import (
     TechnicalDrawingListSerializer, RawMaterialSerializer, 
     InventoryTransactionSerializer, UnitOfMeasureSerializer
 )
-from .pagination import StandardResultsSetPagination
 
 class UnitOfMeasureViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = UnitOfMeasure.objects.all()
@@ -52,7 +51,6 @@ class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all().select_related('inventory_category').prefetch_related('technicaldrawing_set')
     serializer_class = ProductSerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = StandardResultsSetPagination
 
     def get_queryset(self):
         queryset = super().get_queryset()
@@ -269,7 +267,6 @@ class TechnicalDrawingViewSet(viewsets.ModelViewSet):
     queryset = TechnicalDrawing.objects.all().select_related('product', 'approved_by')
     serializer_class = TechnicalDrawingDetailSerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = StandardResultsSetPagination
 
     def get_serializer_class(self):
         if self.action == 'list':
@@ -411,7 +408,6 @@ class RawMaterialViewSet(viewsets.ModelViewSet):
     queryset = RawMaterial.objects.all()
     serializer_class = RawMaterialSerializer
     permission_classes = [IsAuthenticated]
-    pagination_class = StandardResultsSetPagination
 
     @swagger_auto_schema(
         operation_description="List all raw materials with optional filters",
