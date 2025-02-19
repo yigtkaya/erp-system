@@ -25,10 +25,16 @@ class BOMAdmin(admin.ModelAdmin):
 
 @admin.register(BOMComponent)
 class BOMComponentAdmin(admin.ModelAdmin):
-    list_display = ('bom', 'component_type', 'quantity', 'sequence_order')
-    list_filter = ('component_type',)
-    search_fields = ('bom__product__product_name',)
-    ordering = ('bom', 'sequence_order')
+    list_display = ('bom', 'component_type', 'get_item', 'quantity')
+    list_filter = ('component_type', 'bom__product')
+    
+    def get_item(self, obj):
+        if obj.component_type == 'PROCESS': return obj.process
+        if obj.component_type == 'SEMI': return obj.product
+        if obj.component_type == 'STANDARD': return obj.standard_part
+        if obj.component_type == 'RAW': return obj.raw_material
+        return '-'
+    get_item.short_description = 'Component Item'
 
 @admin.register(ManufacturingProcess)
 class ManufacturingProcessAdmin(admin.ModelAdmin):

@@ -4,20 +4,41 @@ from django.core.exceptions import ValidationError
 from erp_core.models import BaseModel, User, Customer, ProductType, ComponentType, MachineStatus, WorkOrderStatus
 from sales.models import SalesOrderItem
 from datetime import datetime, timedelta
+from django.db.models import Q
+
+class AxisCount(models.TextChoices):
+    NINE_AXIS = '9EKSEN', '9 Eksen'
+    EIGHT_POINT_FIVE_AXIS = '8.5EKSEN', '8.5 Eksen'
+    FIVE_AXIS = '5EKSEN', '5 Eksen'
+    FOUR_AXIS = '4EKSEN', '4 Eksen'
+    THREE_AXIS = '3EKSEN', '3 Eksen'
+    TWO_AXIS = '2EKSEN', '2 Eksen'
+    ONE_AXIS = '1EKSEN', '1 Eksen'
+
 
 class MachineType(models.TextChoices):
-    MILLING = 'MILLING', 'Milling Machine'
-    LATHE = 'LATHE', 'Lathe Machine'
-    DRILL = 'DRILL', 'Drill Press'
-    GRINDING = 'GRINDING', 'Grinding Machine'
+    PROCESSING_CENTER = 'İşleme Merkezi', 'İşleme Merkezi'
+    CNC_TORNA = 'CNC Torna Merkezi', 'CNC Torna Merkezi'
+    CNC_KAYAR_OTOMAT = 'CNC Kayar Otomat', 'CNC Kayar Otomat'
 
 class Machine(BaseModel):
     machine_code = models.CharField(max_length=50, unique=True)
     machine_type = models.CharField(max_length=50, choices=MachineType.choices)
     brand = models.CharField(max_length=50, blank=True, null=True)
     model = models.CharField(max_length=50, blank=True, null=True)
-    axis_count = models.IntegerField(blank=True, null=True)
-    internal_cooling = models.BooleanField(default=False)
+    axis_count = models.CharField(
+        max_length=20,
+        choices=AxisCount.choices,
+        blank=True,
+        null=True
+    )
+    internal_cooling = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Internal cooling pressure in bars",
+        null=True,
+        blank=True
+    )
     motor_power_kva = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     holder_type = models.CharField(max_length=50, blank=True, null=True)
     spindle_motor_power_10_percent_kw = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
@@ -26,7 +47,7 @@ class Machine(BaseModel):
     spindle_speed_rpm = models.IntegerField(blank=True, null=True)
     tool_count = models.IntegerField(blank=True, null=True)
     nc_control_unit = models.CharField(max_length=50, blank=True, null=True)
-    manufacturing_year = models.IntegerField(blank=True, null=True)
+    manufacturing_year = models.DateField(null=True, blank=True)
     serial_number = models.CharField(max_length=100, unique=True, blank=True, null=True)
     machine_weight_kg = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
     max_part_size = models.CharField(max_length=50, blank=True, null=True)
@@ -89,74 +110,62 @@ class BOM(BaseModel):
         return f"{self.product.product_code} - v{self.version}"
 
 class BOMComponent(models.Model):
+    COMPONENT_TYPES = [
+        ('PROCESS', 'Manufacturing Process'),
+        ('SEMI', 'Semi-Finished Product'),
+        ('MONTAGED', 'Montaged Product'),
+        ('STANDARD', 'Standard Part'),
+        ('RAW', 'Raw Material')
+    ]
+    
     bom = models.ForeignKey(BOM, on_delete=models.CASCADE, related_name='components')
-    component_type = models.CharField(max_length=30, choices=ComponentType.choices)
-    semi_product = models.ForeignKey(
-        'inventory.Product',
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
-        related_name='semi_components'
-    )
-    raw_material = models.ForeignKey(
-        'inventory.RawMaterial',
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
-        related_name='material_components'
-    )
-    process_config = models.ForeignKey(BOMProcessConfig, on_delete=models.PROTECT, null=True, blank=True)
-    standard_part = models.ForeignKey(
-        'inventory.Product',
-        on_delete=models.PROTECT,
-        null=True,
-        blank=True,
-        related_name='standard_components',
-        limit_choices_to={'product_type': ProductType.STANDARD_PART}
-    )
-    quantity = models.DecimalField(max_digits=10, decimal_places=2)
+    component_type = models.CharField(max_length=20, choices=COMPONENT_TYPES)
     sequence_order = models.IntegerField()
-
-    class Meta:
-        verbose_name = "BOM Component"
-        verbose_name_plural = "BOM Components"
-        ordering = ['sequence_order']
+    
+    # Process-specific fields
+    process = models.ForeignKey(ManufacturingProcess, on_delete=models.PROTECT, blank=True, null=True)
+    process_config = models.ForeignKey(BOMProcessConfig, on_delete=models.PROTECT, blank=True, null=True)
+    
+    # Product/Material fields
+    product = models.ForeignKey('inventory.Product', on_delete=models.PROTECT, blank=True, null=True,
+                              limit_choices_to=Q(product_type__in=[ProductType.SEMI, ProductType.MONTAGED]))
+    standard_part = models.ForeignKey('inventory.Product', on_delete=models.PROTECT, blank=True, null=True,
+                                     limit_choices_to={'product_type': ProductType.STANDARD_PART},
+                                     related_name='standard_components')
+    raw_material = models.ForeignKey('inventory.RawMaterial', on_delete=models.PROTECT, blank=True, null=True)
+    
+    quantity = models.DecimalField(max_digits=10, decimal_places=2)
+    notes = models.TextField(blank=True)
 
     def clean(self):
-        # Validate that only one of semi_product, raw_material, or process_config is set
-        fields = [
-            (self.semi_product, ComponentType.SEMI_PRODUCT),
-            (self.raw_material, ComponentType.RAW_MATERIAL),
-            (self.process_config, ComponentType.MANUFACTURING_PROCESS),
-            (self.standard_part, ComponentType.STANDARD_PART),
-
-        ]
-
-        if self.component_type == ComponentType.STANDARD_PART:
-            if self.semi_product.product_type != ProductType.STANDARD_PART:
-                raise ValidationError("Standard Part components must reference Standard Part products")
-        
-        # Check if the set field matches the component type
-        for field, expected_type in fields:
-            if field and self.component_type != expected_type:
-                raise ValidationError(f"Component type {self.component_type} does not match the provided field type {expected_type}")
-        
-        # Check if exactly one field is set
-        set_fields = sum(1 for field, _ in fields if field is not None)
-        if set_fields != 1:
-            raise ValidationError("Exactly one of semi_product, raw_material, or process_config must be set")
+        # Validate component type relationships
+        if self.component_type == 'PROCESS' and not self.process:
+            raise ValidationError("Process components must have a manufacturing process selected")
+            
+        if self.component_type in ['SEMI', 'MONTAGED'] and not self.product:
+            raise ValidationError(f"{self.get_component_type_display()} must have a product selected")
+            
+        if self.component_type == 'STANDARD' and not self.standard_part:
+            raise ValidationError("Standard part components must have a standard part selected")
+            
+        if self.component_type == 'RAW' and not self.raw_material:
+            raise ValidationError("Raw material components must have a raw material selected")
 
     def save(self, *args, **kwargs):
         self.clean()
         super().save(*args, **kwargs)
 
     def __str__(self):
-        if self.semi_product:
-            return f"Semi-Product: {self.semi_product.product_code}"
-        elif self.raw_material:
-            return f"Raw Material: {self.raw_material.material_code}"
+        if self.component_type == 'PROCESS':
+            return f"Process: {self.process.process_code}"
+        elif self.component_type == 'SEMI':
+            return f"Semi-Product: {self.product.product_code}"
+        elif self.component_type == 'MONTAGED':
+            return f"Montaged Product: {self.product.product_code}"
+        elif self.component_type == 'STANDARD':
+            return f"Standard Part: {self.standard_part.product_code}"
         else:
-            return f"Process: {self.process_config.process.process_code}"
+            return f"Raw Material: {self.raw_material.material_code}"
 
 class WorkOrder(BaseModel):
     order_number = models.CharField(max_length=50, unique=True)

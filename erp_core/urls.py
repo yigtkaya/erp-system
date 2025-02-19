@@ -105,6 +105,9 @@ urlpatterns = [
     
     # Sales App URLs
     path('api/sales/', include('sales.urls')),
+
+    # Manufacturing App URLs
+    path('api/manufacturing/', include('manufacturing.urls')),
 ]
 
 if settings.DEBUG:

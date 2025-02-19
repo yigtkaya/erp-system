@@ -3,15 +3,30 @@ from .models import (
     WorkOrder, BOM, Machine, ManufacturingProcess,
     SubWorkOrder, BOMComponent, WorkOrderOutput
 )
-from inventory.serializers import InventoryCategorySerializer
+from inventory.serializers import InventoryCategorySerializer, ProductSerializer, RawMaterialSerializer
+
+class ManufacturingProcessSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ManufacturingProcess
+        fields = [
+            'id', 'process_code', 'process_name',
+            'standard_time_minutes', 'machine_type',
+            'approved_by', 'created_at', 'modified_at'
+        ]
 
 class BOMComponentSerializer(serializers.ModelSerializer):
+    process = ManufacturingProcessSerializer(read_only=True)
+    product = ProductSerializer(read_only=True)
+    standard_part = ProductSerializer(read_only=True)
+    raw_material = RawMaterialSerializer(read_only=True)
+    
     class Meta:
         model = BOMComponent
         fields = [
-            'id', 'bom', 'component_type', 'semi_product', 
-            'raw_material', 'process_config', 'quantity',
-            'sequence_order'
+            'id', 'component_type', 'sequence_order',
+            'process', 'process_config', 'product',
+            'standard_part', 'raw_material', 'quantity',
+            'notes'
         ]
 
 class BOMSerializer(serializers.ModelSerializer):
@@ -44,15 +59,6 @@ class MachineSerializer(serializers.ModelSerializer):
             'tool_count', 'nc_control_unit', 'manufacturing_year',
             'serial_number', 'machine_weight_kg', 'max_part_size',
             'description', 'created_at', 'modified_at'
-        ]
-
-class ManufacturingProcessSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ManufacturingProcess
-        fields = [
-            'id', 'process_code', 'process_name',
-            'standard_time_minutes', 'machine_type',
-            'approved_by', 'created_at', 'modified_at'
         ]
 
 class SubWorkOrderSerializer(serializers.ModelSerializer):
