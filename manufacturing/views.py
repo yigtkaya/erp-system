@@ -85,7 +85,9 @@ class BOMComponentViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         bom_id = self.kwargs.get('bom_pk')
-        return BOMComponent.objects.filter(bom__id=bom_id)
+        return BOMComponent.objects.filter(bom__id=bom_id).select_related(
+            'process_config__process'
+        )
 
 class ManufacturingProcessViewSet(viewsets.ModelViewSet):
     queryset = ManufacturingProcess.objects.all()

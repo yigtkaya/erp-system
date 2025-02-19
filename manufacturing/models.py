@@ -5,6 +5,8 @@ from erp_core.models import BaseModel, User, Customer, ProductType, ComponentTyp
 from sales.models import SalesOrderItem
 from datetime import datetime, timedelta
 from django.db.models import Q
+from django.db.models.query import QuerySet
+from model_utils.managers import InheritanceManager
 
 class AxisCount(models.TextChoices):
     NINE_AXIS = '9EKSEN', '9 Eksen'
@@ -81,7 +83,13 @@ class ManufacturingProcess(BaseModel):
 
 class BOMProcessConfig(models.Model):
     process = models.ForeignKey(ManufacturingProcess, on_delete=models.PROTECT)
-    machine_type = models.CharField(max_length=50)
+    axis_count = models.CharField(
+        max_length=20,
+        choices=AxisCount.choices,
+        help_text="Required machine axis count for this process configuration",
+        blank=True,
+        null=True
+    )
     estimated_duration_minutes = models.IntegerField()
     tooling_requirements = models.JSONField(blank=True, null=True)
     quality_checks = models.JSONField(blank=True, null=True)
@@ -91,7 +99,7 @@ class BOMProcessConfig(models.Model):
         verbose_name_plural = "BOM Process Configurations"
 
     def __str__(self):
-        return f"{self.process.process_code} - {self.machine_type}"
+        return f"{self.process.process_code} - {self.axis_count}"
 
 class BOM(BaseModel):
     product = models.ForeignKey('inventory.Product', on_delete=models.PROTECT)
@@ -106,66 +114,69 @@ class BOM(BaseModel):
             models.Index(fields=['product']),
         ]
 
+    def clean(self):
+        super().clean()
+        if self.product.product_type == ProductType.SINGLE:
+            raise ValidationError("Single products cannot have a BOM")
+        
+        # Ensure all components are valid for the product type
+        if self.pk:  # Only check if BOM already exists
+            product_components = self.components.instance_of(ProductComponent)
+            process_components = self.components.instance_of(ProcessComponent)
+            
+            if self.product.product_type == ProductType.MONTAGED and process_components.exists():
+                raise ValidationError("Montaged products cannot have process components")
+            
+            if self.product.product_type == ProductType.SEMI and product_components.exists():
+                raise ValidationError("Semi-finished products cannot have product components")
+
     def __str__(self):
         return f"{self.product.product_code} - v{self.version}"
 
-class BOMComponent(models.Model):
-    COMPONENT_TYPES = [
-        ('PROCESS', 'Manufacturing Process'),
-        ('SEMI', 'Semi-Finished Product'),
-        ('MONTAGED', 'Montaged Product'),
-        ('STANDARD', 'Standard Part'),
-        ('RAW', 'Raw Material')
-    ]
-    
+class BOMComponent(BaseModel):
     bom = models.ForeignKey(BOM, on_delete=models.CASCADE, related_name='components')
-    component_type = models.CharField(max_length=20, choices=COMPONENT_TYPES)
     sequence_order = models.IntegerField()
-    
-    # Process-specific fields
-    process = models.ForeignKey(ManufacturingProcess, on_delete=models.PROTECT, blank=True, null=True)
-    process_config = models.ForeignKey(BOMProcessConfig, on_delete=models.PROTECT, blank=True, null=True)
-    
-    # Product/Material fields
-    product = models.ForeignKey('inventory.Product', on_delete=models.PROTECT, blank=True, null=True,
-                              limit_choices_to=Q(product_type__in=[ProductType.SEMI, ProductType.MONTAGED]))
-    standard_part = models.ForeignKey('inventory.Product', on_delete=models.PROTECT, blank=True, null=True,
-                                     limit_choices_to={'product_type': ProductType.STANDARD_PART},
-                                     related_name='standard_components')
-    raw_material = models.ForeignKey('inventory.RawMaterial', on_delete=models.PROTECT, blank=True, null=True)
-    
     quantity = models.DecimalField(max_digits=10, decimal_places=2)
     notes = models.TextField(blank=True)
 
-    def clean(self):
-        # Validate component type relationships
-        if self.component_type == 'PROCESS' and not self.process:
-            raise ValidationError("Process components must have a manufacturing process selected")
-            
-        if self.component_type in ['SEMI', 'MONTAGED'] and not self.product:
-            raise ValidationError(f"{self.get_component_type_display()} must have a product selected")
-            
-        if self.component_type == 'STANDARD' and not self.standard_part:
-            raise ValidationError("Standard part components must have a standard part selected")
-            
-        if self.component_type == 'RAW' and not self.raw_material:
-            raise ValidationError("Raw material components must have a raw material selected")
+    objects = InheritanceManager()
 
-    def save(self, *args, **kwargs):
-        self.clean()
-        super().save(*args, **kwargs)
+    class Meta:
+        ordering = ['sequence_order']
 
     def __str__(self):
-        if self.component_type == 'PROCESS':
-            return f"Process: {self.process.process_code}"
-        elif self.component_type == 'SEMI':
-            return f"Semi-Product: {self.product.product_code}"
-        elif self.component_type == 'MONTAGED':
-            return f"Montaged Product: {self.product.product_code}"
-        elif self.component_type == 'STANDARD':
-            return f"Standard Part: {self.standard_part.product_code}"
-        else:
-            return f"Raw Material: {self.raw_material.material_code}"
+        return f"Component {self.sequence_order} of {self.bom}"
+
+class ProductComponent(BOMComponent):
+    product = models.ForeignKey('inventory.Product', on_delete=models.PROTECT)
+
+    def clean(self):
+        super().clean()
+        if self.bom.product == self.product:
+            raise ValidationError("A product cannot be a component of itself")
+        
+        # Validate based on parent BOM's product type
+        parent_type = self.bom.product.product_type
+        if parent_type == ProductType.MONTAGED:
+            if self.product.product_type not in [ProductType.MONTAGED, ProductType.SEMI, ProductType.STANDARD_PART]:
+                raise ValidationError("Montaged products can only contain other montaged products, semi-finished products, or standard parts")
+        elif parent_type == ProductType.SEMI:
+            raise ValidationError("Semi-finished products cannot contain other products as components")
+
+    def __str__(self):
+        return f"{self.product.product_code} (x{self.quantity})"
+
+class ProcessComponent(BOMComponent):
+    process_config = models.ForeignKey(BOMProcessConfig, on_delete=models.PROTECT)
+    raw_material = models.ForeignKey('inventory.RawMaterial', on_delete=models.PROTECT, null=True, blank=True)
+    
+    def clean(self):
+        super().clean()
+        if self.bom.product.product_type != ProductType.SEMI:
+            raise ValidationError("Only semi-finished products can have process components")
+
+    def __str__(self):
+        return f"{self.process_config.process.process_code} (x{self.quantity})"
 
 class WorkOrder(BaseModel):
     order_number = models.CharField(max_length=50, unique=True)
@@ -216,8 +227,8 @@ class SubWorkOrderProcess(models.Model):
     actual_duration_minutes = models.IntegerField(null=True, blank=True)
 
     def clean(self):
-        if self.machine.machine_type != self.process.machine_type:
-            raise ValidationError("Machine type does not match process requirements")
+        if self.machine.axis_count != self.sub_work_order.bom_component.process_config.axis_count:
+            raise ValidationError("Machine axis count does not match process requirements")
 
     def save(self, *args, **kwargs):
         self.clean()

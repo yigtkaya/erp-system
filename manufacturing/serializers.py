@@ -1,7 +1,7 @@
 from rest_framework import serializers
 from .models import (
     WorkOrder, BOM, Machine, ManufacturingProcess,
-    SubWorkOrder, BOMComponent, WorkOrderOutput
+    SubWorkOrder, BOMComponent, WorkOrderOutput, BOMProcessConfig
 )
 from inventory.serializers import InventoryCategorySerializer, ProductSerializer, RawMaterialSerializer
 
@@ -15,7 +15,11 @@ class ManufacturingProcessSerializer(serializers.ModelSerializer):
         ]
 
 class BOMComponentSerializer(serializers.ModelSerializer):
-    process = ManufacturingProcessSerializer(read_only=True)
+    process_config = serializers.PrimaryKeyRelatedField(
+        queryset=BOMProcessConfig.objects.all(),
+        required=False,
+        allow_null=True
+    )
     product = ProductSerializer(read_only=True)
     standard_part = ProductSerializer(read_only=True)
     raw_material = RawMaterialSerializer(read_only=True)
@@ -24,10 +28,28 @@ class BOMComponentSerializer(serializers.ModelSerializer):
         model = BOMComponent
         fields = [
             'id', 'component_type', 'sequence_order',
-            'process', 'process_config', 'product',
-            'standard_part', 'raw_material', 'quantity',
-            'notes'
+            'process_config', 'product', 'standard_part',
+            'raw_material', 'quantity', 'notes'
         ]
+        extra_kwargs = {
+            'process_config': {'required': False}
+        }
+
+    def validate(self, data):
+        component_type = data.get('component_type')
+        process_config = data.get('process_config')
+
+        if component_type == 'PROCESS' and not process_config:
+            raise serializers.ValidationError(
+                "Process configuration is required for PROCESS components"
+            )
+            
+        if component_type != 'PROCESS' and process_config:
+            raise serializers.ValidationError(
+                "Process configuration should only be set for PROCESS components"
+            )
+        
+        return data
 
 class BOMSerializer(serializers.ModelSerializer):
     components = BOMComponentSerializer(many=True, read_only=True)

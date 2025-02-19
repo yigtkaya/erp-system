@@ -1,5 +1,9 @@
 from django.contrib import admin
-from .models import WorkOrder, Machine, BOM, BOMComponent, ManufacturingProcess, SubWorkOrder, WorkOrderOutput, BOMProcessConfig, SubWorkOrderProcess
+from .models import (
+    WorkOrder, Machine, BOM, BOMComponent, ManufacturingProcess, 
+    SubWorkOrder, WorkOrderOutput, BOMProcessConfig, SubWorkOrderProcess,
+    ProductComponent, ProcessComponent
+)
 
 @admin.register(WorkOrder)
 class WorkOrderAdmin(admin.ModelAdmin):
@@ -18,23 +22,35 @@ class MachineAdmin(admin.ModelAdmin):
 
 @admin.register(BOM)
 class BOMAdmin(admin.ModelAdmin):
-    list_display = ('product', 'version', 'is_active')
-    list_filter = ('is_active',)
+    list_display = ('product', 'version', 'is_active', 'get_product_type')
+    list_filter = ('is_active', 'product__product_type')
     search_fields = ('product__product_name', 'version')
     ordering = ('product__product_code', '-version')
 
+    def get_product_type(self, obj):
+        return obj.product.get_product_type_display()
+    get_product_type.short_description = 'Product Type'
+
 @admin.register(BOMComponent)
 class BOMComponentAdmin(admin.ModelAdmin):
-    list_display = ('bom', 'component_type', 'get_item', 'quantity')
-    list_filter = ('component_type', 'bom__product')
-    
-    def get_item(self, obj):
-        if obj.component_type == 'PROCESS': return obj.process
-        if obj.component_type == 'SEMI': return obj.product
-        if obj.component_type == 'STANDARD': return obj.standard_part
-        if obj.component_type == 'RAW': return obj.raw_material
-        return '-'
-    get_item.short_description = 'Component Item'
+    list_display = ('bom', 'sequence_order', 'quantity')
+    list_filter = ('bom__product__product_type',)
+    search_fields = ('bom__product__product_name',)
+    ordering = ('bom', 'sequence_order')
+
+@admin.register(ProductComponent)
+class ProductComponentAdmin(admin.ModelAdmin):
+    list_display = ('bom', 'product', 'sequence_order', 'quantity')
+    list_filter = ('bom__product__product_type', 'product__product_type')
+    search_fields = ('bom__product__product_name', 'product__product_name')
+    ordering = ('bom', 'sequence_order')
+
+@admin.register(ProcessComponent)
+class ProcessComponentAdmin(admin.ModelAdmin):
+    list_display = ('bom', 'process_config', 'raw_material', 'sequence_order', 'quantity')
+    list_filter = ('process_config__process__machine_type',)
+    search_fields = ('bom__product__product_name', 'process_config__process__process_name')
+    ordering = ('bom', 'sequence_order')
 
 @admin.register(ManufacturingProcess)
 class ManufacturingProcessAdmin(admin.ModelAdmin):
@@ -59,8 +75,8 @@ class WorkOrderOutputAdmin(admin.ModelAdmin):
 
 @admin.register(BOMProcessConfig)
 class BOMProcessConfigAdmin(admin.ModelAdmin):
-    list_display = ('process', 'machine_type', 'estimated_duration_minutes')
-    list_filter = ('machine_type',)
+    list_display = ('process', 'axis_count', 'estimated_duration_minutes')
+    list_filter = ('axis_count',)
     search_fields = ('process__process_name',)
 
 @admin.register(SubWorkOrderProcess)

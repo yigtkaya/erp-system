@@ -47,7 +47,7 @@ This system is designed to handle end-to-end manufacturing operations, from cust
 - Support for three component types:
   - Semi-finished products
   - Raw materials
-  - Manufacturing processes
+  - **Manufacturing Process** (via BOMProcessConfig)
 - Process configuration management
 
 ### 4. Production Planning
