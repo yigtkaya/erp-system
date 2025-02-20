@@ -102,7 +102,11 @@ class BOMProcessConfig(models.Model):
         return f"{self.process.process_code} - {self.axis_count}"
 
 class BOM(BaseModel):
-    product = models.ForeignKey('inventory.Product', on_delete=models.PROTECT)
+    product = models.ForeignKey(
+        'inventory.Product',
+        on_delete=models.PROTECT,
+        to_field='product_code'
+    )
     version = models.CharField(max_length=20, default='1.0')
     is_active = models.BooleanField(default=True)
 
@@ -208,15 +212,57 @@ class SubWorkOrder(BaseModel):
     target_category = models.ForeignKey('inventory.InventoryCategory', on_delete=models.PROTECT, null=True, blank=True)
     notes = models.TextField(blank=True, null=True)
 
+    @property
+    def component_type(self):
+        """Returns the specific type of BOM component (Process or Product)"""
+        return self.bom_component.get_real_instance_class().__name__
+
+    @property
+    def is_process_component(self):
+        """Check if this sub work order is for a process component"""
+        return isinstance(self.bom_component.get_real_instance(), ProcessComponent)
+
+    @property
+    def is_product_component(self):
+        """Check if this sub work order is for a product component"""
+        return isinstance(self.bom_component.get_real_instance(), ProductComponent)
+
+    def get_specific_component(self):
+        """Get the actual ProcessComponent or ProductComponent instance"""
+        return self.bom_component.get_real_instance()
+
     def clean(self):
+        super().clean()
         if self.output_quantity and self.output_quantity + self.scrap_quantity > self.quantity:
             raise ValidationError("Output quantity plus scrap cannot exceed input quantity")
         
         if self.status == WorkOrderStatus.COMPLETED and not self.output_quantity:
             raise ValidationError("Output quantity must be set when completing a work order")
 
+        # Validate target category based on component type
+        if self.target_category:
+            specific_component = self.get_specific_component()
+            
+            if isinstance(specific_component, ProcessComponent):
+                if specific_component.bom.product.product_type == ProductType.SEMI:
+                    if self.target_category.name not in ['PROSES', 'KARANTINA', 'HURDA']:
+                        raise ValidationError("Process components for semi-finished products must target Proses, Karantina, or Hurda categories")
+            
+            elif isinstance(specific_component, ProductComponent):
+                if specific_component.bom.product.product_type == ProductType.MONTAGED:
+                    if self.target_category.name not in ['MAMUL', 'KARANTINA', 'HURDA']:
+                        raise ValidationError("Product components for montaged products must target Mamul, Karantina, or Hurda categories")
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"{self.parent_work_order.order_number} - {self.bom_component}"
+        component = self.get_specific_component()
+        if isinstance(component, ProcessComponent):
+            return f"{self.parent_work_order.order_number} - Process: {component.process_config.process.process_code}"
+        else:
+            return f"{self.parent_work_order.order_number} - Product: {component.product.product_code}"
 
 class SubWorkOrderProcess(models.Model):
     sub_work_order = models.ForeignKey(SubWorkOrder, on_delete=models.CASCADE, related_name='processes')
@@ -227,8 +273,24 @@ class SubWorkOrderProcess(models.Model):
     actual_duration_minutes = models.IntegerField(null=True, blank=True)
 
     def clean(self):
-        if self.machine.axis_count != self.sub_work_order.bom_component.process_config.axis_count:
+        super().clean()
+        # Ensure the sub work order is for a process component
+        if not self.sub_work_order.is_process_component:
+            raise ValidationError("Can only add processes to sub work orders with process components")
+
+        # Get the actual process component
+        process_component = self.sub_work_order.get_specific_component()
+        
+        # Validate machine requirements
+        if self.machine.axis_count != process_component.process_config.axis_count:
             raise ValidationError("Machine axis count does not match process requirements")
+        
+        if self.machine.machine_type != process_component.process_config.process.machine_type:
+            raise ValidationError("Machine type does not match process requirements")
+
+        # Validate process matches the BOM process configuration
+        if self.process != process_component.process_config.process:
+            raise ValidationError("Process must match the one specified in the BOM process configuration")
 
     def save(self, *args, **kwargs):
         self.clean()
@@ -247,7 +309,8 @@ class WorkOrderOutput(BaseModel):
     OUTPUT_STATUS = [
         ('GOOD', 'Good Quality'),
         ('REWORK', 'Needs Rework'),
-        ('SCRAP', 'Scrap')
+        ('SCRAP', 'Scrap'),
+        ('QUARANTINE', 'In Quarantine')
     ]
 
     sub_work_order = models.ForeignKey(SubWorkOrder, on_delete=models.PROTECT, related_name='outputs')
@@ -255,15 +318,35 @@ class WorkOrderOutput(BaseModel):
     status = models.CharField(max_length=20, choices=OUTPUT_STATUS)
     target_category = models.ForeignKey('inventory.InventoryCategory', on_delete=models.PROTECT)
     notes = models.TextField(blank=True, null=True)
+    quarantine_reason = models.TextField(blank=True, null=True, help_text="Reason for quarantine status if applicable")
+    inspection_required = models.BooleanField(default=False, help_text="Whether quality inspection is required")
 
     def clean(self):
-        # Validate target category based on output status
-        if self.status == 'GOOD' and self.target_category.name not in ['MAMUL', 'PROSES']:
-            raise ValidationError("Good quality items must go to Mamul or Proses")
-        elif self.status == 'REWORK' and self.target_category.name != 'KARANTINA':
-            raise ValidationError("Items needing rework must go to Karantina")
-        elif self.status == 'SCRAP' and self.target_category.name != 'HURDA':
-            raise ValidationError("Scrap items must go to Hurda")
+        super().clean()
+        component = self.sub_work_order.get_specific_component()
+        
+        # Validate target category based on output status and component type
+        if self.status == 'GOOD':
+            if isinstance(component, ProcessComponent):
+                if component.bom.product.product_type == ProductType.SEMI:
+                    if self.target_category.name != 'PROSES':
+                        raise ValidationError("Good quality semi-finished products must go to Proses category")
+            elif isinstance(component, ProductComponent):
+                if component.bom.product.product_type == ProductType.MONTAGED:
+                    if self.target_category.name != 'MAMUL':
+                        raise ValidationError("Good quality montaged products must go to Mamul category")
+        elif self.status == 'REWORK':
+            if self.target_category.name != 'KARANTINA':
+                raise ValidationError("Items needing rework must go to Karantina")
+        elif self.status == 'SCRAP':
+            if self.target_category.name != 'HURDA':
+                raise ValidationError("Scrap items must go to Hurda")
+        elif self.status == 'QUARANTINE':
+            if self.target_category.name != 'KARANTINA':
+                raise ValidationError("Quarantined items must go to Karantina category")
+            if not self.quarantine_reason:
+                raise ValidationError("Quarantine reason is required for items in quarantine status")
+            self.inspection_required = True
 
         # Validate total output doesn't exceed sub work order quantity
         total_output = WorkOrderOutput.objects.filter(sub_work_order=self.sub_work_order).exclude(pk=self.pk).aggregate(
@@ -282,11 +365,16 @@ class WorkOrderOutput(BaseModel):
                 status='SCRAP'
             ).aggregate(total=models.Sum('quantity'))['total'] or 0
         
+        # Calculate total output quantity excluding quarantined items
         self.sub_work_order.output_quantity = WorkOrderOutput.objects.filter(
-            sub_work_order=self.sub_work_order
+            sub_work_order=self.sub_work_order,
+            status__in=['GOOD', 'REWORK', 'SCRAP']
         ).aggregate(total=models.Sum('quantity'))['total'] or 0
         
         self.sub_work_order.save()
 
     def __str__(self):
-        return f"{self.sub_work_order} - {self.quantity} units - {self.status}" 
+        status_str = f"{self.get_status_display()}"
+        if self.status == 'QUARANTINE':
+            status_str += f" (Reason: {self.quarantine_reason[:30]}...)" if len(self.quarantine_reason) > 30 else f" (Reason: {self.quarantine_reason})"
+        return f"{self.sub_work_order} - {self.quantity} units - {status_str}" 

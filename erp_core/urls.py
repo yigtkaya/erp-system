@@ -92,8 +92,6 @@ urlpatterns = [
     # App URLs
     path('api/customers/', CustomerViewSet.as_view({'get': 'list', 'post': 'create'}), name='customer-list'),
     path('api/customers/<int:pk>/', CustomerViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'}), name='customer-detail'),
-    path('api/products/', ProductViewSet.as_view({'get': 'list', 'post': 'create'}), name='product-list'),
-    path('api/products/<int:pk>/', ProductViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'}), name='product-detail'),
     path('api/orders/', OrderViewSet.as_view({'get': 'list', 'post': 'create'}), name='order-list'),
     path('api/orders/<int:pk>/', OrderViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'}), name='order-detail'),
     

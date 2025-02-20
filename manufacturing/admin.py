@@ -68,10 +68,25 @@ class SubWorkOrderAdmin(admin.ModelAdmin):
 
 @admin.register(WorkOrderOutput)
 class WorkOrderOutputAdmin(admin.ModelAdmin):
-    list_display = ('sub_work_order', 'quantity', 'status', 'target_category')
-    list_filter = ('status', 'target_category')
-    search_fields = ('sub_work_order__parent_work_order__order_number',)
+    list_display = ('sub_work_order', 'quantity', 'status', 'target_category', 'inspection_required')
+    list_filter = ('status', 'target_category', 'inspection_required')
+    search_fields = ('sub_work_order__parent_work_order__order_number', 'quarantine_reason', 'notes')
     ordering = ('-created_at',)
+    readonly_fields = ('inspection_required',)
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('sub_work_order', 'quantity', 'status', 'target_category')
+        }),
+        ('Quality Control', {
+            'fields': ('inspection_required', 'quarantine_reason'),
+            'classes': ('collapse',),
+            'description': 'Quality control and quarantine information'
+        }),
+        ('Notes', {
+            'fields': ('notes',),
+            'classes': ('collapse',)
+        })
+    )
 
 @admin.register(BOMProcessConfig)
 class BOMProcessConfigAdmin(admin.ModelAdmin):

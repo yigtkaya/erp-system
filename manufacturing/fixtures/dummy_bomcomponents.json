@@ -1,15 +1,14 @@
 [
   {
-    "model": "manufacturing.bomcomponent",
+    "model": "manufacturing.processcomponent",
     "pk": 1,
     "fields": {
       "bom": 1,
-      "component_type": "SEMI_PRODUCT",
-      "semi_product": 1,
-      "raw_material": null,
-      "process_config": 1,
       "quantity": "100.00",
-      "sequence_order": 1
+      "sequence_order": 1,
+      "notes": "Sample process component",
+      "process_config": 1,
+      "raw_material": null
     }
   }
 ]

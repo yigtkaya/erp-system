@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from inventory.models import Product
-from manufacturing.models import BOM, BOMComponent, BOMProcessConfig, ManufacturingProcess
+from manufacturing.models import BOM, ProcessComponent, BOMProcessConfig, ManufacturingProcess
 
 class Command(BaseCommand):
     help = 'Add a sample BOM and BOM components for a semi-finished product.'
@@ -37,14 +37,13 @@ class Command(BaseCommand):
             )
             return
 
-        # Create a BOM process configuration if needed (assumes BOMProcessConfig exists)
+        # Create a BOM process configuration if needed
         bom_process_config, created_config = BOMProcessConfig.objects.get_or_create(
             process=process,
             defaults={
-                'setup_time': 5,
-                'run_time': 20,
-                'quantity': "100.00",
-                'additional_notes': "Sample configuration",
+                'estimated_duration_minutes': 25,
+                'tooling_requirements': {"tools": ["Cutting Tool", "Measuring Tool"]},
+                'quality_checks': {"checks": ["Dimension Check", "Surface Finish Check"]},
             }
         )
         if created_config:
@@ -52,18 +51,17 @@ class Command(BaseCommand):
         else:
             self.stdout.write(f"BOM Process Config already exists for process: {process.process_code}")
 
-        # Create a BOM component linking the BOM, the semi-finished product, and the BOM process configuration
-        bom_component, created_comp = BOMComponent.objects.get_or_create(
+        # Create a process component for the BOM
+        process_component, created_comp = ProcessComponent.objects.get_or_create(
             bom=bom,
-            semi_product=semi_product,
             process_config=bom_process_config,
             defaults={
-                'component_type': 'SEMI_PRODUCT',
                 'quantity': "100.00",
                 'sequence_order': 1,
+                'notes': "Sample process component"
             }
         )
         if created_comp:
-            self.stdout.write(self.style.SUCCESS("Created BOM component for the BOM."))
+            self.stdout.write(self.style.SUCCESS("Created process component for the BOM."))
         else:
-            self.stdout.write("BOM component already exists for the BOM.") 
+            self.stdout.write("Process component already exists for the BOM.") 

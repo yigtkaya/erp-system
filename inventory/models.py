@@ -81,7 +81,9 @@ class Product(BaseModel):
         result = {}
 
         # Get BOM components where this product is used as a semi-finished product
-        components = apps.get_model('manufacturing', 'BOMComponent').objects.filter(semi_product=self)
+        components = apps.get_model('manufacturing', 'ProcessComponent').objects.filter(
+            bom__product=self
+        )
 
         # Get in-progress work orders related to these components
         work_orders = apps.get_model('manufacturing', 'WorkOrder').objects.filter(
@@ -90,9 +92,12 @@ class Product(BaseModel):
 
         for work_order in work_orders:
             # We assume the reverse relation from WorkOrder to SubWorkOrder is named 'sub_orders'
-            sub_work_orders = work_order.sub_orders.filter(bom_component__semi_product=self)
+            sub_work_orders = work_order.sub_orders.filter(
+                bom_component__in=components
+            )
             for sub_order in sub_work_orders:
-                process_config = sub_order.bom_component.process_config
+                process_component = sub_order.get_specific_component()
+                process_config = process_component.process_config
                 # Use the process code from the manufacturing process if available
                 process_name = (
                     process_config.process.process_code
