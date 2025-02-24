@@ -67,14 +67,16 @@ class ProductComponentSerializer(serializers.ModelSerializer):
         }
 
 class BOMComponentSerializer(serializers.ModelSerializer):
-    process_component = ProcessComponentSerializer(read_only=True)
-    product_component = ProductComponentSerializer(read_only=True)
+    process_component = ProcessComponentSerializer(source='processcomponent', read_only=True)
+    product_component = ProductComponentSerializer(source='productcomponent', read_only=True)
+    component_type = serializers.CharField(source='get_component_type_display', read_only=True)
 
     class Meta:
         model = BOMComponent
         fields = [
             'id', 'bom', 'sequence_order', 'quantity',
-            'notes', 'process_component', 'product_component'
+            'notes', 'component_type', 'process_component', 
+            'product_component'
         ]
 
 class BOMSerializer(serializers.ModelSerializer):

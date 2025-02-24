@@ -52,16 +52,21 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
         return Response(self.get_serializer(work_order).data)
 
 class BOMViewSet(viewsets.ModelViewSet):
-    queryset = BOM.objects.filter(is_active=True).prefetch_related(
-        'components',
-        'components__process_component',
-        'components__product_component'
-    )
+    queryset = BOM.objects.none()  # Default queryset, will be overridden by get_queryset
     serializer_class = BOMSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['product', 'version', 'is_active']
     search_fields = ['product__product_code']
+
+    def get_queryset(self):
+        return BOM.objects.filter(is_active=True).select_related(
+            'product'
+        ).prefetch_related(
+            'components__processcomponent__process_config__process',
+            'components__processcomponent__raw_material',
+            'components__productcomponent__product'
+        )
 
     def perform_destroy(self, instance):
         instance.is_active = False
