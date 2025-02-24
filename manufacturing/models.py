@@ -63,6 +63,12 @@ class Machine(BaseModel):
     next_maintenance_date = models.DateField(null=True, blank=True)
     maintenance_notes = models.TextField(blank=True, null=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['machine_type']),
+        ]
+
     def __str__(self):
         return f"{self.machine_code} - {self.machine_type}"
 
@@ -77,6 +83,11 @@ class ManufacturingProcess(BaseModel):
     standard_time_minutes = models.IntegerField()
     machine_type = models.CharField(max_length=50, choices=MachineType.choices)
     approved_by = models.ForeignKey(User, on_delete=models.PROTECT, null=True, blank=True, related_name='approved_processes')
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['machine_type']),
+        ]
 
     def __str__(self):
         return f"{self.process_code} - {self.process_name}"
@@ -97,6 +108,10 @@ class BOMProcessConfig(models.Model):
     class Meta:
         verbose_name = "BOM Process Configuration"
         verbose_name_plural = "BOM Process Configurations"
+        indexes = [
+            models.Index(fields=['process']),
+            models.Index(fields=['axis_count']),
+        ]
 
     def __str__(self):
         axis_str = f" - {self.axis_count}" if self.axis_count else ""
@@ -124,6 +139,7 @@ class BOM(BaseModel):
         unique_together = ['product', 'version']
         indexes = [
             models.Index(fields=['product']),
+            models.Index(fields=['is_active']),
         ]
 
     def clean(self):
@@ -133,7 +149,8 @@ class BOM(BaseModel):
             raise ValidationError("Standard products (bought externally) cannot have a BOM")
         
         # Validate components based on the parent product type
-        if self.pk:  # Only check if BOM already exists
+        # Remove the self.pk check to ensure validation runs during creation as well
+        if hasattr(self, 'components'):
             # Use the InheritanceManager helper to separate component types
             product_components = self.components.instance_of(ProductComponent)
             process_components = self.components.instance_of(ProcessComponent)
@@ -183,6 +200,10 @@ class BOMComponent(BaseModel):
     class Meta:
         ordering = ['sequence_order']
         unique_together = [('bom', 'sequence_order')]
+        indexes = [
+            models.Index(fields=['bom']),
+            models.Index(fields=['component_type']),
+        ]
 
     def clean(self):
         super().clean()
@@ -229,6 +250,10 @@ class ProductComponent(BOMComponent):
         super().clean()
         if self.bom.product == self.product:
             raise ValidationError("A product cannot be a component of itself")
+        
+        # Check for circular dependencies
+        self._check_circular_dependency(self.bom.product, [self.product])
+        
         parent_type = self.bom.product.product_type
         if parent_type == ProductType.MONTAGED:
             if self.product.product_type not in [ProductType.SEMI, ProductType.STANDARD_PART]:
@@ -236,6 +261,29 @@ class ProductComponent(BOMComponent):
         elif parent_type in [ProductType.SEMI, ProductType.SINGLE]:
             if self.product.product_type != ProductType.STANDARD_PART:
                 raise ValidationError("Semi and Single products can only include Standard parts as product components")
+
+    def _check_circular_dependency(self, parent_product, visited_products):
+        """
+        Recursively check for circular dependencies in the BOM structure.
+        
+        Args:
+            parent_product: The product to check components for
+            visited_products: List of products already visited in this branch
+        """
+        # Get all BOMs for the parent product
+        boms = BOM.objects.filter(product=parent_product, is_active=True)
+        
+        for bom in boms:
+            # Get all product components in this BOM
+            product_components = ProductComponent.objects.filter(bom=bom)
+            
+            for component in product_components:
+                if component.product in visited_products:
+                    raise ValidationError(f"Circular dependency detected: {component.product} is already used in the BOM hierarchy")
+                
+                # Only recurse for Semi products (Standard products don't have BOMs)
+                if component.product.product_type == ProductType.SEMI:
+                    self._check_circular_dependency(component.product, visited_products + [component.product])
 
     def __str__(self):
         return f"{self.product.product_code} (x{self.quantity})"
@@ -271,6 +319,12 @@ class WorkOrder(BaseModel):
     priority = models.IntegerField(default=1)  # 1 is highest priority
     notes = models.TextField(blank=True, null=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['priority']),
+        ]
+
     def __str__(self):
         return f"{self.order_number} - {self.bom.product.product_code}"
 
@@ -292,6 +346,12 @@ class SubWorkOrder(BaseModel):
     scrap_quantity = models.IntegerField(default=0)
     target_category = models.ForeignKey('inventory.InventoryCategory', on_delete=models.PROTECT, null=True, blank=True)
     notes = models.TextField(blank=True, null=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['parent_work_order']),
+        ]
 
     @property
     def component_type(self):
@@ -358,6 +418,13 @@ class SubWorkOrderProcess(models.Model):
     planned_duration_minutes = models.IntegerField(null=True, blank=True)
     actual_duration_minutes = models.IntegerField(null=True, blank=True)
 
+    class Meta:
+        ordering = ['sequence_order']
+        indexes = [
+            models.Index(fields=['sub_work_order']),
+            models.Index(fields=['machine']),
+        ]
+
     def clean(self):
         super().clean()
         # Ensure the sub work order is for a process component
@@ -379,9 +446,6 @@ class SubWorkOrderProcess(models.Model):
     def __str__(self):
         return f"{self.sub_work_order} - {self.process.process_code}"
 
-    class Meta:
-        ordering = ['sequence_order']
-
 class WorkOrderOutput(BaseModel):
     """
     Records the output of work orders and manages inventory categorization.
@@ -401,10 +465,19 @@ class WorkOrderOutput(BaseModel):
     quarantine_reason = models.TextField(blank=True, null=True, help_text="Reason for quarantine status if applicable")
     inspection_required = models.BooleanField(default=False, help_text="Whether quality inspection is required")
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['sub_work_order']),
+            models.Index(fields=['target_category']),
+            models.Index(fields=['inspection_required']),
+        ]
+
     def clean(self):
         super().clean()
         component = self.sub_work_order.get_specific_component()
         
+        # Validate target category based on output status and component type
         if self.status == 'GOOD':
             if isinstance(component, ProcessComponent):
                 if component.bom.product.product_type in [ProductType.SEMI, ProductType.SINGLE]:
@@ -429,6 +502,7 @@ class WorkOrderOutput(BaseModel):
 
         total_output = WorkOrderOutput.objects.filter(sub_work_order=self.sub_work_order).exclude(pk=self.pk).aggregate(
             total=models.Sum('quantity'))['total'] or 0
+        
         if total_output + self.quantity > self.sub_work_order.quantity:
             raise ValidationError("Total output quantity cannot exceed work order quantity")
 
@@ -455,80 +529,4 @@ class WorkOrderOutput(BaseModel):
         if self.status == 'QUARANTINE':
             truncated = self.quarantine_reason[:30] + "..." if len(self.quarantine_reason or "") > 30 else self.quarantine_reason
             status_str += f" (Reason: {truncated})"
-        return f"{self.sub_work_order} - {self.quantity} units - {status_str}"
-
-    """
-    Records the output of work orders and manages inventory categorization
-    """
-    OUTPUT_STATUS = [
-        ('GOOD', 'Good Quality'),
-        ('REWORK', 'Needs Rework'),
-        ('SCRAP', 'Scrap'),
-        ('QUARANTINE', 'In Quarantine')
-    ]
-
-    sub_work_order = models.ForeignKey(SubWorkOrder, on_delete=models.PROTECT, related_name='outputs')
-    quantity = models.IntegerField()
-    status = models.CharField(max_length=20, choices=OUTPUT_STATUS)
-    target_category = models.ForeignKey('inventory.InventoryCategory', on_delete=models.PROTECT)
-    notes = models.TextField(blank=True, null=True)
-    quarantine_reason = models.TextField(blank=True, null=True, help_text="Reason for quarantine status if applicable")
-    inspection_required = models.BooleanField(default=False, help_text="Whether quality inspection is required")
-
-    def clean(self):
-        super().clean()
-        component = self.sub_work_order.get_specific_component()
-        
-        # Validate target category based on output status and component type
-        if self.status == 'GOOD':
-            if isinstance(component, ProcessComponent):
-                if component.bom.product.product_type == ProductType.SEMI:
-                    if self.target_category.name != 'PROSES':
-                        raise ValidationError("Good quality semi-finished products must go to Proses category")
-            elif isinstance(component, ProductComponent):
-                if component.bom.product.product_type == ProductType.MONTAGED:
-                    if self.target_category.name != 'MAMUL':
-                        raise ValidationError("Good quality montaged products must go to Mamul category")
-        elif self.status == 'REWORK':
-            if self.target_category.name != 'KARANTINA':
-                raise ValidationError("Items needing rework must go to Karantina")
-        elif self.status == 'SCRAP':
-            if self.target_category.name != 'HURDA':
-                raise ValidationError("Scrap items must go to Hurda")
-        elif self.status == 'QUARANTINE':
-            if self.target_category.name != 'KARANTINA':
-                raise ValidationError("Quarantined items must go to Karantina category")
-            if not self.quarantine_reason:
-                raise ValidationError("Quarantine reason is required for items in quarantine status")
-            self.inspection_required = True
-
-        # Validate total output doesn't exceed sub work order quantity
-        total_output = WorkOrderOutput.objects.filter(sub_work_order=self.sub_work_order).exclude(pk=self.pk).aggregate(
-            total=models.Sum('quantity'))['total'] or 0
-        if total_output + self.quantity > self.sub_work_order.quantity:
-            raise ValidationError("Total output quantity cannot exceed work order quantity")
-
-    def save(self, *args, **kwargs):
-        self.clean()
-        super().save(*args, **kwargs)
-        
-        # Update sub work order quantities
-        if self.status == 'SCRAP':
-            self.sub_work_order.scrap_quantity = WorkOrderOutput.objects.filter(
-                sub_work_order=self.sub_work_order,
-                status='SCRAP'
-            ).aggregate(total=models.Sum('quantity'))['total'] or 0
-        
-        # Calculate total output quantity excluding quarantined items
-        self.sub_work_order.output_quantity = WorkOrderOutput.objects.filter(
-            sub_work_order=self.sub_work_order,
-            status__in=['GOOD', 'REWORK', 'SCRAP']
-        ).aggregate(total=models.Sum('quantity'))['total'] or 0
-        
-        self.sub_work_order.save()
-
-    def __str__(self):
-        status_str = f"{self.get_status_display()}"
-        if self.status == 'QUARANTINE':
-            status_str += f" (Reason: {self.quarantine_reason[:30]}...)" if len(self.quarantine_reason) > 30 else f" (Reason: {self.quarantine_reason})"
         return f"{self.sub_work_order} - {self.quantity} units - {status_str}" 

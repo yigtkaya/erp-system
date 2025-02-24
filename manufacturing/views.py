@@ -7,6 +7,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from erp_core.throttling import CustomScopedRateThrottle
 from erp_core.models import WorkOrderStatus, MachineStatus
+from django.db import transaction
+from rest_framework.exceptions import ValidationError
 
 from .models import (
     WorkOrder, BOM, Machine, ManufacturingProcess,
@@ -19,14 +21,22 @@ from .serializers import (
     ManufacturingProcessSerializer, SubWorkOrderSerializer,
     BOMComponentSerializer, WorkOrderOutputSerializer,
     ProcessComponentSerializer, ProductComponentSerializer,
-    SubWorkOrderProcessSerializer, BOMProcessConfigSerializer
+    SubWorkOrderProcessSerializer, BOMProcessConfigSerializer,
+    WorkOrderCreateUpdateSerializer, BOMCreateUpdateSerializer,
+    BOMWithComponentsSerializer, ProcessComponentCreateUpdateSerializer,
+    ProductComponentCreateUpdateSerializer, SubWorkOrderCreateUpdateSerializer,
+    SubWorkOrderProcessCreateUpdateSerializer, WorkOrderOutputCreateUpdateSerializer,
+    BOMComponentCreateSerializer
 )
 
 class WorkOrderViewSet(viewsets.ModelViewSet):
     queryset = WorkOrder.objects.select_related(
-        'bom', 'sales_order_item'
-    ).prefetch_related('sub_orders')
-    serializer_class = WorkOrderSerializer
+        'bom', 'bom__product', 'sales_order_item'
+    ).prefetch_related(
+        'sub_orders',
+        'sub_orders__processes',
+        'sub_orders__outputs'
+    )
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['status', 'bom__product', 'priority']
@@ -35,6 +45,11 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
     ordering = ['-planned_start']
     throttle_scope = 'manufacturing'
     throttle_classes = [CustomScopedRateThrottle]
+    
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return WorkOrderCreateUpdateSerializer
+        return WorkOrderSerializer
 
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
@@ -50,10 +65,16 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
         work_order.status = new_status
         work_order.save()
         return Response(self.get_serializer(work_order).data)
+    
+    def handle_exception(self, exc):
+        if isinstance(exc, ValidationError):
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().handle_exception(exc)
 
 class BOMViewSet(viewsets.ModelViewSet):
-    queryset = BOM.objects.none()  # Default queryset, will be overridden by get_queryset
-    serializer_class = BOMSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['product', 'version', 'is_active']
@@ -67,10 +88,36 @@ class BOMViewSet(viewsets.ModelViewSet):
             'components__processcomponent__raw_material',
             'components__productcomponent__product'
         )
+    
+    def get_serializer_class(self):
+        if self.action == 'create_with_components':
+            return BOMWithComponentsSerializer
+        elif self.action in ['create', 'update', 'partial_update']:
+            return BOMCreateUpdateSerializer
+        return BOMSerializer
 
     def perform_destroy(self, instance):
         instance.is_active = False
         instance.save()
+    
+    @action(detail=False, methods=['post'])
+    @transaction.atomic
+    def create_with_components(self, request):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        bom = serializer.save()
+        return Response(
+            BOMSerializer(bom).data,
+            status=status.HTTP_201_CREATED
+        )
+    
+    def handle_exception(self, exc):
+        if isinstance(exc, ValidationError):
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().handle_exception(exc)
 
 class MachineViewSet(viewsets.ModelViewSet):
     queryset = Machine.objects.all()
@@ -103,33 +150,88 @@ class MachineViewSet(viewsets.ModelViewSet):
         machine.calculate_next_maintenance()
         machine.save()
         return Response(self.get_serializer(machine).data)
+    
+    def handle_exception(self, exc):
+        if isinstance(exc, ValidationError):
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().handle_exception(exc)
 
 class BOMComponentViewSet(viewsets.ModelViewSet):
-    serializer_class = BOMComponentSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         bom_id = self.kwargs.get('bom_pk')
         return BOMComponent.objects.filter(bom__id=bom_id).select_related(
-            'process_component__process_config',
-            'product_component__product'
+            'bom',
+            'processcomponent__process_config__process',
+            'processcomponent__raw_material',
+            'productcomponent__product'
         )
+    
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return BOMComponentCreateSerializer
+        return BOMComponentSerializer
+    
+    def handle_exception(self, exc):
+        if isinstance(exc, ValidationError):
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().handle_exception(exc)
 
 class ProcessComponentViewSet(viewsets.ModelViewSet):
-    queryset = ProcessComponent.objects.select_related(
-        'process_config', 'raw_material'
-    )
-    serializer_class = ProcessComponentSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['bom']
+    
+    def get_queryset(self):
+        return ProcessComponent.objects.select_related(
+            'bom', 'bom__product',
+            'process_config', 'process_config__process',
+            'raw_material'
+        )
+    
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return ProcessComponentCreateUpdateSerializer
+        return ProcessComponentSerializer
+    
+    def handle_exception(self, exc):
+        if isinstance(exc, ValidationError):
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().handle_exception(exc)
 
 class ProductComponentViewSet(viewsets.ModelViewSet):
-    queryset = ProductComponent.objects.select_related('product')
-    serializer_class = ProductComponentSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['bom']
+    
+    def get_queryset(self):
+        return ProductComponent.objects.select_related(
+            'bom', 'bom__product',
+            'product'
+        )
+    
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return ProductComponentCreateUpdateSerializer
+        return ProductComponentSerializer
+    
+    def handle_exception(self, exc):
+        if isinstance(exc, ValidationError):
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().handle_exception(exc)
 
 class ManufacturingProcessViewSet(viewsets.ModelViewSet):
     queryset = ManufacturingProcess.objects.all()
@@ -138,6 +240,14 @@ class ManufacturingProcessViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['machine_type']
     search_fields = ['process_code', 'process_name']
+    
+    def handle_exception(self, exc):
+        if isinstance(exc, ValidationError):
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().handle_exception(exc)
 
 class BOMProcessConfigViewSet(viewsets.ModelViewSet):
     queryset = BOMProcessConfig.objects.select_related('process')
@@ -145,17 +255,37 @@ class BOMProcessConfigViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['process', 'axis_count']
+    
+    def handle_exception(self, exc):
+        if isinstance(exc, ValidationError):
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().handle_exception(exc)
 
 class SubWorkOrderViewSet(viewsets.ModelViewSet):
-    queryset = SubWorkOrder.objects.select_related(
-        'parent_work_order',
-        'bom_component',
-        'target_category'
-    ).prefetch_related('processes', 'outputs')
-    serializer_class = SubWorkOrderSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['status', 'parent_work_order']
+    
+    def get_queryset(self):
+        return SubWorkOrder.objects.select_related(
+            'parent_work_order',
+            'bom_component',
+            'target_category'
+        ).prefetch_related(
+            'processes', 
+            'processes__process',
+            'processes__machine',
+            'outputs',
+            'outputs__target_category'
+        )
+    
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return SubWorkOrderCreateUpdateSerializer
+        return SubWorkOrderSerializer
 
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
@@ -171,28 +301,61 @@ class SubWorkOrderViewSet(viewsets.ModelViewSet):
         sub_work_order.status = new_status
         sub_work_order.save()
         return Response(self.get_serializer(sub_work_order).data)
+    
+    def handle_exception(self, exc):
+        if isinstance(exc, ValidationError):
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().handle_exception(exc)
 
 class SubWorkOrderProcessViewSet(viewsets.ModelViewSet):
-    queryset = SubWorkOrderProcess.objects.select_related(
-        'sub_work_order', 'process', 'machine'
-    )
-    serializer_class = SubWorkOrderProcessSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['sub_work_order', 'machine']
 
     def get_queryset(self):
         sub_work_order_pk = self.kwargs.get('sub_work_order_pk')
-        queryset = super().get_queryset()
+        queryset = SubWorkOrderProcess.objects.select_related(
+            'sub_work_order', 'process', 'machine'
+        )
         if sub_work_order_pk:
             queryset = queryset.filter(sub_work_order_id=sub_work_order_pk)
         return queryset
+    
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return SubWorkOrderProcessCreateUpdateSerializer
+        return SubWorkOrderProcessSerializer
+    
+    def handle_exception(self, exc):
+        if isinstance(exc, ValidationError):
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().handle_exception(exc)
 
 class WorkOrderOutputViewSet(viewsets.ModelViewSet):
-    queryset = WorkOrderOutput.objects.select_related(
-        'sub_work_order', 'target_category'
-    )
-    serializer_class = WorkOrderOutputSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['status', 'target_category', 'inspection_required']
+    
+    def get_queryset(self):
+        return WorkOrderOutput.objects.select_related(
+            'sub_work_order', 'target_category'
+        )
+    
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return WorkOrderOutputCreateUpdateSerializer
+        return WorkOrderOutputSerializer
+    
+    def handle_exception(self, exc):
+        if isinstance(exc, ValidationError):
+            return Response(
+                {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().handle_exception(exc)
