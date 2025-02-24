@@ -40,17 +40,49 @@ class BOMComponentAdmin(admin.ModelAdmin):
 
 @admin.register(ProductComponent)
 class ProductComponentAdmin(admin.ModelAdmin):
-    list_display = ('bom', 'product', 'sequence_order', 'quantity')
-    list_filter = ('bom__product__product_type', 'product__product_type')
+    list_display = ('bom', 'product', 'sequence_order', 'quantity', 'created_by', 'modified_by')
+    list_filter = ('bom__product__product_type', 'product__product_type', 'created_by', 'modified_by')
     search_fields = ('bom__product__product_name', 'product__product_name')
     ordering = ('bom', 'sequence_order')
+    readonly_fields = ('created_by', 'modified_by', 'created_at', 'modified_at')
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('bom', 'product', 'sequence_order', 'quantity')
+        }),
+        ('Additional Information', {
+            'fields': ('notes',),
+            'classes': ('collapse',)
+        }),
+        ('Audit Information', {
+            'fields': ('created_by', 'modified_by', 'created_at', 'modified_at'),
+            'classes': ('collapse',)
+        })
+    )
 
 @admin.register(ProcessComponent)
 class ProcessComponentAdmin(admin.ModelAdmin):
-    list_display = ('bom', 'process_config', 'raw_material', 'sequence_order', 'quantity')
-    list_filter = ('process_config__process__machine_type',)
+    list_display = ('bom', 'process_config', 'raw_material', 'sequence_order', 'get_quantity', 'created_by', 'modified_by')
+    list_filter = ('process_config__process__machine_type', 'created_by', 'modified_by')
     search_fields = ('bom__product__product_name', 'process_config__process__process_name')
     ordering = ('bom', 'sequence_order')
+    readonly_fields = ('created_by', 'modified_by', 'created_at', 'modified_at')
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('bom', 'process_config', 'sequence_order')
+        }),
+        ('Optional Information', {
+            'fields': ('quantity', 'raw_material', 'notes'),
+            'classes': ('collapse',)
+        }),
+        ('Audit Information', {
+            'fields': ('created_by', 'modified_by', 'created_at', 'modified_at'),
+            'classes': ('collapse',)
+        })
+    )
+
+    def get_quantity(self, obj):
+        return obj.quantity if obj.quantity is not None else 'Not specified'
+    get_quantity.short_description = 'Quantity'
 
 @admin.register(ManufacturingProcess)
 class ManufacturingProcessAdmin(admin.ModelAdmin):
@@ -90,9 +122,32 @@ class WorkOrderOutputAdmin(admin.ModelAdmin):
 
 @admin.register(BOMProcessConfig)
 class BOMProcessConfigAdmin(admin.ModelAdmin):
-    list_display = ('process', 'axis_count', 'estimated_duration_minutes')
-    list_filter = ('axis_count',)
-    search_fields = ('process__process_name',)
+    list_display = ('process', 'get_axis_count', 'get_duration')
+    list_filter = ('process__machine_type',)
+    search_fields = ('process__process_name', 'process__process_code')
+    fieldsets = (
+        ('Process Information', {
+            'fields': ('process',)
+        }),
+        ('Configuration', {
+            'fields': ('axis_count', 'estimated_duration_minutes'),
+            'classes': ('collapse',),
+            'description': 'Optional configuration settings for the process'
+        }),
+        ('Requirements', {
+            'fields': ('tooling_requirements', 'quality_checks'),
+            'classes': ('collapse',),
+            'description': 'Optional tooling and quality requirements'
+        })
+    )
+
+    def get_axis_count(self, obj):
+        return obj.axis_count if obj.axis_count else 'Not specified'
+    get_axis_count.short_description = 'Axis Count'
+
+    def get_duration(self, obj):
+        return f"{obj.estimated_duration_minutes} minutes" if obj.estimated_duration_minutes else 'Not specified'
+    get_duration.short_description = 'Estimated Duration'
 
 @admin.register(SubWorkOrderProcess)
 class SubWorkOrderProcessAdmin(admin.ModelAdmin):
