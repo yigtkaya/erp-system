@@ -27,9 +27,7 @@ class TechnicalDrawingListSerializer(serializers.ModelSerializer):
         read_only_fields = ['drawing_url']
 
     def get_drawing_url(self, obj):
-        if obj.drawing_file:
-            return obj.drawing_file.url
-        return None
+        return obj.drawing_url
 
 class ProductSerializer(serializers.ModelSerializer):
     technical_drawings = TechnicalDrawingListSerializer(source='technicaldrawing_set', many=True, read_only=True)
@@ -63,9 +61,7 @@ class TechnicalDrawingDetailSerializer(serializers.ModelSerializer):
         read_only_fields = ['drawing_url', 'product_code', 'product_name']
 
     def get_drawing_url(self, obj):
-        if obj.drawing_file:
-            return obj.drawing_file.url
-        return None
+        return obj.drawing_url
 
 class RawMaterialSerializer(serializers.ModelSerializer):
     class Meta:

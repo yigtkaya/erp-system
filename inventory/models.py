@@ -5,6 +5,7 @@ from django.core.validators import MinValueValidator
 import pathlib 
 from django.db.models import Sum
 from django.apps import apps
+from django.conf import settings
 
 class InventoryCategory(models.Model):
     CATEGORY_CHOICES = [
@@ -119,7 +120,13 @@ class TechnicalDrawing(BaseModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     version = models.CharField(max_length=20)
     drawing_code = models.CharField(max_length=50)
-    drawing_file = models.FileField(upload_to='technical_drawings/%Y/%m/%d/', max_length=500, blank=True, null=True)
+    drawing_file = models.FileField(
+        upload_to='technical_drawings/%Y/%m/%d/', 
+        max_length=500, 
+        blank=True, 
+        null=True,
+        storage=settings.DEFAULT_FILE_STORAGE if hasattr(settings, 'USE_CLOUDFLARE_R2') and settings.USE_CLOUDFLARE_R2 else None
+    )
     effective_date = models.DateField()
     is_current = models.BooleanField(default=True)
     revision_notes = models.CharField(max_length=500, blank=True, null=True)
@@ -150,6 +157,15 @@ class TechnicalDrawing(BaseModel):
     
     def __str__(self):
         return f"{self.drawing_code} v{self.version}"
+    
+    @property
+    def drawing_url(self):
+        """
+        Returns the URL for the drawing file, using Cloudflare R2 if enabled.
+        """
+        if self.drawing_file:
+            return self.drawing_file.url
+        return None
 
 class RawMaterial(BaseModel):
     material_code = models.CharField(max_length=50, unique=True)

@@ -106,5 +106,9 @@ ADMINS = [x.split(':') for x in os.getenv('DJANGO_ADMINS', '').split(',') if x]
 # Security Middleware settings
 MIDDLEWARE.insert(1, 'django.middleware.security.SecurityMiddleware')
 
-# Static files serving
-STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.ManifestStaticFilesStorage' 
+# Import Cloudflare R2 settings if enabled
+if os.getenv('USE_CLOUDFLARE_R2', 'False').lower() == 'true':
+    from .cloudflare_r2 import *
+else:
+    # Static files serving with WhiteNoise if not using R2
+    STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.ManifestStaticFilesStorage' 
