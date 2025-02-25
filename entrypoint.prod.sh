@@ -19,6 +19,13 @@ then
     echo "PostgreSQL started"
 fi
 
-python manage.py collectstatic --no-input
+# Collect static files
+echo "Collecting static files..."
+python manage.py collectstatic --no-input --clear
+
+# Set proper permissions for static files
+echo "Setting proper permissions for static files..."
+find /home/app/web/staticfiles -type d -exec chmod 755 {} \;
+find /home/app/web/staticfiles -type f -exec chmod 644 {} \;
 
 exec "$@"

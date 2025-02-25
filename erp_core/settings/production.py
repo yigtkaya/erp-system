@@ -110,5 +110,5 @@ MIDDLEWARE.insert(1, 'django.middleware.security.SecurityMiddleware')
 if os.getenv('USE_CLOUDFLARE_R2', 'False').lower() == 'true':
     from .cloudflare_r2 import *
 else:
-    # Static files serving with WhiteNoise if not using R2
-    STATICFILES_STORAGE = 'django.contrib.staticfiles.storage.ManifestStaticFilesStorage' 
+    # Static files serving with WhiteNoise
+    STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage' 
