@@ -22,7 +22,7 @@ class TechnicalDrawingListSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'version', 'drawing_code', 'drawing_file',
             'drawing_url', 'effective_date', 'is_current', 'revision_notes',
-            'created_at', 'updated_at'
+            'created_at', 'modified_at'
         ]
         read_only_fields = ['drawing_url']
 
@@ -56,7 +56,7 @@ class TechnicalDrawingDetailSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'product', 'product_code', 'product_name', 'version', 
             'drawing_code', 'drawing_file', 'drawing_url', 'effective_date', 
-            'is_current', 'revision_notes', 'approved_by', 'created_at', 'updated_at'
+            'is_current', 'revision_notes', 'approved_by', 'created_at', 'modified_at'
         ]
         read_only_fields = ['drawing_url', 'product_code', 'product_name']
 
