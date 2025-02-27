@@ -2,10 +2,26 @@ from rest_framework import serializers
 from .models import (
     WorkOrder, BOM, Machine, ManufacturingProcess,
     SubWorkOrder, BOMComponent, WorkOrderOutput, BOMProcessConfig,
-    ProcessComponent, ProductComponent, SubWorkOrderProcess
+    ProcessComponent, ProductComponent, SubWorkOrderProcess,
+    WorkOrderStatusChange
 )
 from inventory.serializers import InventoryCategorySerializer, ProductSerializer, RawMaterialSerializer
 from django.db import transaction
+from erp_core.serializers import UserSerializer
+
+class MachineSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Machine
+        fields = [
+            'id', 'machine_code', 'machine_type', 'status',
+            'brand', 'model', 'axis_count', 'internal_cooling',
+            'motor_power_kva', 'holder_type', 'spindle_motor_power_10_percent_kw',
+            'spindle_motor_power_30_percent_kw', 'power_hp', 'spindle_speed_rpm',
+            'tool_count', 'nc_control_unit', 'manufacturing_year',
+            'serial_number', 'machine_weight_kg', 'max_part_size',
+            'description', 'maintenance_interval', 'last_maintenance_date',
+            'next_maintenance_date', 'maintenance_notes', 'created_at', 'modified_at'
+        ]
 
 class ManufacturingProcessSerializer(serializers.ModelSerializer):
     class Meta:
@@ -75,16 +91,32 @@ class ProcessComponentCreateUpdateSerializer(serializers.ModelSerializer):
 
 class ProductComponentSerializer(serializers.ModelSerializer):
     product = ProductSerializer(read_only=True)
+    active_bom_id = serializers.SerializerMethodField()
 
     class Meta:
         model = ProductComponent
         fields = [
             'id', 'bom', 'sequence_order', 'quantity',
-            'notes', 'product'
+            'notes', 'product', 'active_bom_id'
         ]
         extra_kwargs = {
             'quantity': {'required': True}
         }
+    
+    def get_active_bom_id(self, obj):
+        """
+        Return the ID of the active BOM for this product if it exists and is a SEMI product.
+        This avoids redundant nesting of BOMs in the response.
+        """
+        if obj.product.product_type == 'SEMI':
+            active_bom = BOM.objects.filter(
+                product=obj.product,
+                is_active=True
+            ).order_by('-modified_at').first()
+            
+            if active_bom:
+                return active_bom.id
+        return None
 
 class ProductComponentCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
@@ -221,11 +253,13 @@ class BOMComponentCreateSerializer(serializers.Serializer):
 class BOMSerializer(serializers.ModelSerializer):
     components = BOMComponentSerializer(many=True, read_only=True)
     product = ProductSerializer(read_only=True)
+    approved_by = UserSerializer(read_only=True)
     
     class Meta:
         model = BOM
         fields = [
-            'id', 'product', 'version', 'is_active',
+            'id', 'product', 'version', 'is_active', 'is_approved',
+            'approved_by', 'approved_at', 'parent_bom', 'notes',
             'components', 'created_at', 'modified_at'
         ]
 
@@ -273,16 +307,33 @@ class BOMWithComponentsSerializer(serializers.ModelSerializer):
         
         return bom
 
+class WorkOrderStatusChangeSerializer(serializers.ModelSerializer):
+    changed_by = UserSerializer(read_only=True)
+    from_status_display = serializers.CharField(source='get_from_status_display', read_only=True)
+    to_status_display = serializers.CharField(source='get_to_status_display', read_only=True)
+    
+    class Meta:
+        model = WorkOrderStatusChange
+        fields = [
+            'id', 'work_order', 'from_status', 'to_status',
+            'from_status_display', 'to_status_display',
+            'changed_by', 'changed_at', 'notes'
+        ]
+
 class SubWorkOrderProcessSerializer(serializers.ModelSerializer):
     process = ManufacturingProcessSerializer(read_only=True)
-    machine = serializers.PrimaryKeyRelatedField(queryset=Machine.objects.all())
+    machine = MachineSerializer(read_only=True)
+    operator = UserSerializer(read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
 
     class Meta:
         model = SubWorkOrderProcess
         fields = [
             'id', 'sub_work_order', 'process', 'machine',
             'sequence_order', 'planned_duration_minutes',
-            'actual_duration_minutes'
+            'actual_duration_minutes', 'status', 'status_display',
+            'start_time', 'end_time', 'operator',
+            'setup_time_minutes', 'notes'
         ]
 
 class SubWorkOrderProcessCreateUpdateSerializer(serializers.ModelSerializer):
@@ -291,30 +342,27 @@ class SubWorkOrderProcessCreateUpdateSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'sub_work_order', 'process', 'machine',
             'sequence_order', 'planned_duration_minutes',
-            'actual_duration_minutes'
+            'actual_duration_minutes', 'status',
+            'start_time', 'end_time', 'operator',
+            'setup_time_minutes', 'notes'
         ]
-    
+
     def validate(self, data):
-        if 'sub_work_order' in data and 'process' in data and 'machine' in data:
-            sub_work_order = data['sub_work_order']
-            process = data['process']
+        # Validate machine compatibility with process
+        if 'machine' in data and 'process' in data:
             machine = data['machine']
+            process = data['process']
             
-            # Ensure the sub work order is for a process component
-            if not sub_work_order.is_process_component:
-                raise serializers.ValidationError("Can only add processes to sub work orders with process components")
-            
-            process_component = sub_work_order.get_specific_component()
-            
-            # Validate machine requirements against the process configuration
-            if process_component.process_config.axis_count and machine.axis_count != process_component.process_config.axis_count:
-                raise serializers.ValidationError("Machine axis count does not match process requirements")
-            
-            if machine.machine_type != process_component.process_config.process.machine_type:
+            if machine.machine_type != process.machine_type:
                 raise serializers.ValidationError("Machine type does not match process requirements")
-            
-            if process != process_component.process_config.process:
-                raise serializers.ValidationError("Process must match the one specified in the BOM process configuration")
+                
+            if machine.status != 'AVAILABLE':
+                raise serializers.ValidationError("Selected machine is not available")
+        
+        # Validate time tracking
+        if 'start_time' in data and 'end_time' in data:
+            if data['end_time'] and data['start_time'] and data['end_time'] < data['start_time']:
+                raise serializers.ValidationError("End time cannot be before start time")
         
         return data
 
@@ -323,17 +371,19 @@ class SubWorkOrderSerializer(serializers.ModelSerializer):
     outputs = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
     target_category = InventoryCategorySerializer(read_only=True)
     component_type = serializers.CharField(read_only=True)
-    
+    assigned_to = UserSerializer(read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
     class Meta:
         model = SubWorkOrder
         fields = [
             'id', 'parent_work_order', 'bom_component',
             'quantity', 'planned_start', 'planned_end',
-            'actual_start', 'actual_end', 'status',
+            'actual_start', 'actual_end', 'status', 'status_display',
             'output_quantity', 'scrap_quantity',
             'target_category', 'notes', 'processes',
-            'outputs', 'component_type', 'created_at',
-            'modified_at'
+            'outputs', 'component_type', 'completion_percentage',
+            'assigned_to'
         ]
 
 class SubWorkOrderCreateUpdateSerializer(serializers.ModelSerializer):
@@ -344,80 +394,86 @@ class SubWorkOrderCreateUpdateSerializer(serializers.ModelSerializer):
             'quantity', 'planned_start', 'planned_end',
             'actual_start', 'actual_end', 'status',
             'output_quantity', 'scrap_quantity',
-            'target_category', 'notes'
+            'target_category', 'notes', 'completion_percentage',
+            'assigned_to'
         ]
-    
+
     def validate(self, data):
+        # Validate dates
+        if 'planned_start' in data and 'planned_end' in data:
+            if data['planned_end'] < data['planned_start']:
+                raise serializers.ValidationError("Planned end date cannot be before planned start date")
+        
+        # Validate quantities
         if 'output_quantity' in data and 'scrap_quantity' in data and 'quantity' in data:
-            output_quantity = data['output_quantity']
-            scrap_quantity = data['scrap_quantity']
-            quantity = data['quantity']
-            
-            if output_quantity and output_quantity + scrap_quantity > quantity:
+            if data['output_quantity'] and data['output_quantity'] + data.get('scrap_quantity', 0) > data['quantity']:
                 raise serializers.ValidationError("Output quantity plus scrap cannot exceed input quantity")
         
-        if 'status' in data and data['status'] == 'COMPLETED' and ('output_quantity' not in data or not data['output_quantity']):
-            raise serializers.ValidationError("Output quantity must be set when completing a work order")
+        # Validate status transitions
+        if 'status' in data and self.instance:
+            from .models import WorkOrderStatusTransition
+            if not WorkOrderStatusTransition.is_valid_transition(self.instance.status, data['status']):
+                raise serializers.ValidationError(f"Invalid status transition from {self.instance.status} to {data['status']}")
         
         return data
 
 class WorkOrderSerializer(serializers.ModelSerializer):
     sub_orders = SubWorkOrderSerializer(many=True, read_only=True)
     bom = BOMSerializer(read_only=True)
-    
+    assigned_to = UserSerializer(read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
     class Meta:
         model = WorkOrder
         fields = [
-            'id', 'order_number', 'sales_order_item', 'bom',
-            'quantity', 'planned_start', 'planned_end',
-            'actual_start', 'actual_end', 'status', 'priority',
-            'notes', 'sub_orders', 'created_at', 'modified_at'
+            'id', 'order_number', 'sales_order_item',
+            'bom', 'quantity', 'planned_start', 'planned_end',
+            'actual_start', 'actual_end', 'status', 'status_display',
+            'priority', 'notes', 'sub_orders', 'completion_percentage',
+            'assigned_to'
         ]
 
 class WorkOrderCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = WorkOrder
         fields = [
-            'id', 'order_number', 'sales_order_item', 'bom',
-            'quantity', 'planned_start', 'planned_end',
-            'actual_start', 'actual_end', 'status', 'priority',
-            'notes'
+            'id', 'order_number', 'sales_order_item',
+            'bom', 'quantity', 'planned_start', 'planned_end',
+            'actual_start', 'actual_end', 'status',
+            'priority', 'notes', 'completion_percentage',
+            'assigned_to'
         ]
-    
+
     def validate(self, data):
+        # Validate dates
         if 'planned_start' in data and 'planned_end' in data:
-            if data['planned_start'] > data['planned_end']:
-                raise serializers.ValidationError("Planned end date must be after planned start date")
+            if data['planned_end'] < data['planned_start']:
+                raise serializers.ValidationError("Planned end date cannot be before planned start date")
         
-        if 'actual_start' in data and 'actual_end' in data:
-            if data['actual_start'] and data['actual_end'] and data['actual_start'] > data['actual_end']:
-                raise serializers.ValidationError("Actual end date must be after actual start date")
+        # Validate BOM is approved
+        if 'bom' in data and not data['bom'].is_approved:
+            raise serializers.ValidationError("Cannot create work order with unapproved BOM")
+        
+        # Validate status transitions
+        if 'status' in data and self.instance:
+            from .models import WorkOrderStatusTransition
+            if not WorkOrderStatusTransition.is_valid_transition(self.instance.status, data['status']):
+                raise serializers.ValidationError(f"Invalid status transition from {self.instance.status} to {data['status']}")
         
         return data
 
-class MachineSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Machine
-        fields = [
-            'id', 'machine_code', 'machine_type', 'status',
-            'brand', 'model', 'axis_count', 'internal_cooling',
-            'motor_power_kva', 'holder_type', 'spindle_motor_power_10_percent_kw',
-            'spindle_motor_power_30_percent_kw', 'power_hp', 'spindle_speed_rpm',
-            'tool_count', 'nc_control_unit', 'manufacturing_year',
-            'serial_number', 'machine_weight_kg', 'max_part_size',
-            'description', 'maintenance_interval', 'last_maintenance_date',
-            'next_maintenance_date', 'maintenance_notes', 'created_at', 'modified_at'
-        ]
-
 class WorkOrderOutputSerializer(serializers.ModelSerializer):
     target_category = InventoryCategorySerializer(read_only=True)
-    
+    created_by = UserSerializer(read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+
     class Meta:
         model = WorkOrderOutput
         fields = [
             'id', 'sub_work_order', 'quantity', 'status',
-            'target_category', 'notes', 'quarantine_reason',
-            'inspection_required', 'created_at', 'modified_at'
+            'status_display', 'target_category', 'notes',
+            'quarantine_reason', 'inspection_required',
+            'created_by', 'production_date', 'created_at'
         ]
 
 class WorkOrderOutputCreateUpdateSerializer(serializers.ModelSerializer):
@@ -426,23 +482,54 @@ class WorkOrderOutputCreateUpdateSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'sub_work_order', 'quantity', 'status',
             'target_category', 'notes', 'quarantine_reason',
-            'inspection_required'
+            'inspection_required', 'production_date'
         ]
-    
+
     def validate(self, data):
-        if 'status' in data and data['status'] == 'QUARANTINE' and 'quarantine_reason' not in data:
-            raise serializers.ValidationError({"quarantine_reason": "Quarantine reason is required for items in quarantine status"})
-        
+        # Validate quantity
+        if 'quantity' in data and data['quantity'] <= 0:
+            raise serializers.ValidationError("Quantity must be greater than zero")
+            
+        # Validate quarantine reason
+        if 'status' in data and data['status'] == 'QUARANTINE' and not data.get('quarantine_reason'):
+            raise serializers.ValidationError("Quarantine reason is required for items in quarantine status")
+            
+        # Validate target category based on status
+        if 'status' in data and 'target_category' in data:
+            status = data['status']
+            target_category = data['target_category']
+            
+            if status == 'GOOD':
+                # Target category validation will be handled in the model's clean method
+                pass
+            elif status == 'REWORK' and target_category.name != 'KARANTINA':
+                raise serializers.ValidationError("Items needing rework must go to Karantina")
+            elif status == 'SCRAP' and target_category.name != 'HURDA':
+                raise serializers.ValidationError("Scrap items must go to Hurda")
+            elif status == 'QUARANTINE' and target_category.name != 'KARANTINA':
+                raise serializers.ValidationError("Quarantined items must go to Karantina category")
+                
+        # Validate total output doesn't exceed work order quantity
         if 'sub_work_order' in data and 'quantity' in data:
             sub_work_order = data['sub_work_order']
             quantity = data['quantity']
             
-            # Calculate total output excluding this instance
-            instance_id = self.instance.id if self.instance else None
-            total_output = WorkOrderOutput.objects.filter(sub_work_order=sub_work_order).exclude(pk=instance_id).aggregate(
-                total=serializers.Sum('quantity'))['total'] or 0
-            
-            if total_output + quantity > sub_work_order.quantity:
-                raise serializers.ValidationError("Total output quantity cannot exceed work order quantity")
-        
+            # Get existing outputs for this sub work order
+            existing_quantity = 0
+            if self.instance:
+                existing_quantity = WorkOrderOutput.objects.filter(
+                    sub_work_order=sub_work_order
+                ).exclude(pk=self.instance.pk).aggregate(
+                    total=models.Sum('quantity')
+                )['total'] or 0
+            else:
+                existing_quantity = WorkOrderOutput.objects.filter(
+                    sub_work_order=sub_work_order
+                ).aggregate(total=models.Sum('quantity'))['total'] or 0
+                
+            if existing_quantity + quantity > sub_work_order.quantity:
+                raise serializers.ValidationError(
+                    f"Total output quantity ({existing_quantity + quantity}) cannot exceed work order quantity ({sub_work_order.quantity})"
+                )
+                
         return data

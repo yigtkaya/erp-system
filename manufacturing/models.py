@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from django.db.models import Q
 from django.db.models.query import QuerySet
 from model_utils.managers import InheritanceManager
+from django.utils import timezone
 
 class AxisCount(models.TextChoices):
     NINE_AXIS = '9EKSEN', '9 Eksen'
@@ -132,6 +133,24 @@ class BOM(BaseModel):
     )
     version = models.CharField(max_length=20, default='1.0')
     is_active = models.BooleanField(default=True)
+    is_approved = models.BooleanField(default=False)
+    approved_by = models.ForeignKey(
+        User, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='approved_boms'
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    parent_bom = models.ForeignKey(
+        'self', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='derived_boms',
+        help_text="The BOM this version was derived from"
+    )
+    notes = models.TextField(blank=True, null=True)
 
     class Meta:
         verbose_name = "Bill of Materials"
@@ -140,6 +159,7 @@ class BOM(BaseModel):
         indexes = [
             models.Index(fields=['product']),
             models.Index(fields=['is_active']),
+            models.Index(fields=['is_approved']),
         ]
 
     def clean(self):
@@ -170,6 +190,70 @@ class BOM(BaseModel):
                     if pc.product.product_type != ProductType.STANDARD_PART:
                         raise ValidationError("For Semi/Single products, product components must be Standard (purchased) parts")
     
+    def approve(self, user):
+        """
+        Approve the BOM, setting approved_by and approved_at fields.
+        """
+        if self.is_approved:
+            return False
+        
+        self.is_approved = True
+        self.approved_by = user
+        self.approved_at = timezone.now()
+        self.save()
+        return True
+    
+    def create_new_version(self, new_version=None):
+        """
+        Create a new version of this BOM.
+        
+        Args:
+            new_version: Optional version string. If not provided, increments the current version.
+            
+        Returns:
+            A new BOM instance with copied components.
+        """
+        if not new_version:
+            # Parse current version and increment
+            try:
+                major, minor = self.version.split('.')
+                new_version = f"{major}.{int(minor) + 1}"
+            except ValueError:
+                # If version format is not as expected, just append .1
+                new_version = f"{self.version}.1"
+        
+        # Create new BOM
+        new_bom = BOM.objects.create(
+            product=self.product,
+            version=new_version,
+            is_active=True,
+            is_approved=False,  # New versions start unapproved
+            parent_bom=self,
+            notes=f"Derived from version {self.version}"
+        )
+        
+        # Copy all components
+        for component in self.components.all().select_subclasses():
+            if isinstance(component, ProductComponent):
+                ProductComponent.objects.create(
+                    bom=new_bom,
+                    sequence_order=component.sequence_order,
+                    quantity=component.quantity,
+                    notes=component.notes,
+                    product=component.product
+                )
+            elif isinstance(component, ProcessComponent):
+                ProcessComponent.objects.create(
+                    bom=new_bom,
+                    sequence_order=component.sequence_order,
+                    quantity=component.quantity,
+                    notes=component.notes,
+                    process_config=component.process_config,
+                    raw_material=component.raw_material
+                )
+        
+        return new_bom
+    
     def __str__(self):
         return f"{self.product.product_code} - v{self.version}"
 
@@ -194,6 +278,15 @@ class BOMComponent(BaseModel):
         default='PRODUCT',
         editable=False
     )
+    is_critical = models.BooleanField(
+        default=False,
+        help_text="Indicates if this component is critical for the BOM"
+    )
+    lead_time_days = models.IntegerField(
+        null=True, 
+        blank=True,
+        help_text="Expected lead time in days for this component"
+    )
 
     objects = InheritanceManager()
 
@@ -203,6 +296,7 @@ class BOMComponent(BaseModel):
         indexes = [
             models.Index(fields=['bom']),
             models.Index(fields=['component_type']),
+            models.Index(fields=['is_critical']),
         ]
 
     def clean(self):
@@ -305,6 +399,34 @@ class ProcessComponent(BOMComponent):
     def __str__(self):
         return f"{self.process_config.process.process_code} (x{self.quantity})"
 
+class WorkOrderStatusTransition:
+    """
+    Defines valid status transitions for work orders.
+    """
+    VALID_TRANSITIONS = {
+        WorkOrderStatus.PLANNED: [WorkOrderStatus.IN_PROGRESS, WorkOrderStatus.DELAYED],
+        WorkOrderStatus.IN_PROGRESS: [WorkOrderStatus.DELAYED, WorkOrderStatus.COMPLETED],
+        WorkOrderStatus.DELAYED: [WorkOrderStatus.IN_PROGRESS, WorkOrderStatus.COMPLETED],
+        WorkOrderStatus.COMPLETED: [],  # No transitions from completed
+    }
+    
+    @classmethod
+    def is_valid_transition(cls, from_status, to_status):
+        """
+        Check if a status transition is valid.
+        
+        Args:
+            from_status: Current status
+            to_status: Target status
+            
+        Returns:
+            bool: True if transition is valid, False otherwise
+        """
+        if from_status == to_status:
+            return True  # Same status is always valid
+            
+        valid_next_statuses = cls.VALID_TRANSITIONS.get(from_status, [])
+        return to_status in valid_next_statuses
 
 class WorkOrder(BaseModel):
     order_number = models.CharField(max_length=50, unique=True)
@@ -313,20 +435,168 @@ class WorkOrder(BaseModel):
     quantity = models.IntegerField()
     planned_start = models.DateField()
     planned_end = models.DateField()
-    actual_start = models.DateField(null=True, blank=True)
-    actual_end = models.DateField(null=True, blank=True)
+    actual_start = models.DateTimeField(null=True, blank=True)
+    actual_end = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.PLANNED)
     priority = models.IntegerField(default=1)  # 1 is highest priority
     notes = models.TextField(blank=True, null=True)
+    completion_percentage = models.DecimalField(
+        max_digits=5, 
+        decimal_places=2, 
+        default=0,
+        help_text="Percentage of work completed"
+    )
+    assigned_to = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assigned_work_orders'
+    )
 
     class Meta:
         indexes = [
             models.Index(fields=['status']),
             models.Index(fields=['priority']),
+            models.Index(fields=['planned_start']),
+            models.Index(fields=['planned_end']),
         ]
+    
+    def clean(self):
+        super().clean()
+        if self.planned_end < self.planned_start:
+            raise ValidationError("Planned end date cannot be before planned start date")
+            
+        # Validate BOM is approved
+        if not self.bom.is_approved:
+            raise ValidationError("Cannot create work order with unapproved BOM")
+    
+    def update_status(self, new_status, user=None):
+        """
+        Update the work order status with proper validation and tracking.
+        
+        Args:
+            new_status: The new status to set
+            user: The user making the change (optional)
+            
+        Returns:
+            bool: True if status was updated, False otherwise
+            
+        Raises:
+            ValidationError: If the status transition is invalid
+        """
+        if not WorkOrderStatusTransition.is_valid_transition(self.status, new_status):
+            raise ValidationError(f"Invalid status transition from {self.status} to {new_status}")
+            
+        old_status = self.status
+        self.status = new_status
+        
+        # Update timestamps based on status
+        now = timezone.now()
+        if old_status == WorkOrderStatus.PLANNED and new_status == WorkOrderStatus.IN_PROGRESS:
+            self.actual_start = now
+        elif new_status == WorkOrderStatus.COMPLETED:
+            self.actual_end = now
+            self.completion_percentage = 100
+            
+        # Create status change record
+        WorkOrderStatusChange.objects.create(
+            work_order=self,
+            from_status=old_status,
+            to_status=new_status,
+            changed_by=user,
+            changed_at=now,
+            notes=f"Status changed from {old_status} to {new_status}"
+        )
+        
+        self.save()
+        
+        # Update sub work orders if parent status changes
+        if new_status in [WorkOrderStatus.COMPLETED]:
+            for sub_order in self.sub_orders.exclude(status__in=[WorkOrderStatus.COMPLETED]):
+                try:
+                    sub_order.update_status(new_status, user)
+                except ValidationError:
+                    # Log but continue with other sub orders
+                    pass
+                    
+        return True
+    
+    def calculate_completion_percentage(self):
+        """
+        Calculate and update the completion percentage based on sub work orders.
+        """
+        sub_orders = self.sub_orders.all()
+        if not sub_orders.exists():
+            return
+            
+        completed_sub_orders = sub_orders.filter(status=WorkOrderStatus.COMPLETED).count()
+        total_sub_orders = sub_orders.count()
+        
+        if total_sub_orders > 0:
+            self.completion_percentage = (completed_sub_orders / total_sub_orders) * 100
+            self.save(update_fields=['completion_percentage'])
+    
+    def create_sub_work_orders(self):
+        """
+        Automatically create sub work orders for all components in the BOM.
+        """
+        if self.sub_orders.exists():
+            return  # Sub orders already exist
+            
+        # Get all components from the BOM
+        components = self.bom.components.all().select_subclasses()
+        
+        # Calculate dates based on lead times and dependencies
+        for component in components:
+            # Default dates if no specific scheduling logic
+            start_date = self.planned_start
+            end_date = self.planned_end
+            
+            # Create the sub work order
+            sub_order = SubWorkOrder.objects.create(
+                parent_work_order=self,
+                bom_component=component,
+                quantity=self.quantity * component.quantity if component.quantity else self.quantity,
+                planned_start=start_date,
+                planned_end=end_date,
+                status=WorkOrderStatus.PLANNED
+            )
+            
+            # For process components, create process steps
+            if isinstance(component, ProcessComponent):
+                # Create a process step for the process configuration
+                process_config = component.process_config
+                SubWorkOrderProcess.objects.create(
+                    sub_work_order=sub_order,
+                    process=process_config.process,
+                    sequence_order=1,
+                    planned_duration_minutes=process_config.estimated_duration_minutes
+                )
 
     def __str__(self):
         return f"{self.order_number} - {self.bom.product.product_code}"
+
+class WorkOrderStatusChange(BaseModel):
+    """
+    Tracks status changes for work orders.
+    """
+    work_order = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name='status_changes')
+    from_status = models.CharField(max_length=20, choices=WorkOrderStatus.choices)
+    to_status = models.CharField(max_length=20, choices=WorkOrderStatus.choices)
+    changed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    changed_at = models.DateTimeField(auto_now_add=True)
+    notes = models.TextField(blank=True, null=True)
+    
+    class Meta:
+        ordering = ['-changed_at']
+        indexes = [
+            models.Index(fields=['work_order']),
+            models.Index(fields=['changed_at']),
+        ]
+        
+    def __str__(self):
+        return f"{self.work_order.order_number}: {self.from_status} → {self.to_status}"
 
 class SubWorkOrder(BaseModel):
     """
@@ -339,18 +609,33 @@ class SubWorkOrder(BaseModel):
     quantity = models.IntegerField()
     planned_start = models.DateField()
     planned_end = models.DateField()
-    actual_start = models.DateField(null=True, blank=True)
-    actual_end = models.DateField(null=True, blank=True)
+    actual_start = models.DateTimeField(null=True, blank=True)
+    actual_end = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.PLANNED)
     output_quantity = models.IntegerField(null=True, blank=True)
     scrap_quantity = models.IntegerField(default=0)
     target_category = models.ForeignKey('inventory.InventoryCategory', on_delete=models.PROTECT, null=True, blank=True)
     notes = models.TextField(blank=True, null=True)
+    completion_percentage = models.DecimalField(
+        max_digits=5, 
+        decimal_places=2, 
+        default=0,
+        help_text="Percentage of work completed"
+    )
+    assigned_to = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='assigned_sub_work_orders'
+    )
 
     class Meta:
         indexes = [
             models.Index(fields=['status']),
             models.Index(fields=['parent_work_order']),
+            models.Index(fields=['planned_start']),
+            models.Index(fields=['planned_end']),
         ]
 
     @property
@@ -371,6 +656,41 @@ class SubWorkOrder(BaseModel):
     def get_specific_component(self):
         """Get the actual ProcessComponent or ProductComponent instance"""
         return self.bom_component.get_real_instance()
+        
+    def update_status(self, new_status, user=None):
+        """
+        Update the sub work order status with proper validation and tracking.
+        
+        Args:
+            new_status: The new status to set
+            user: The user making the change (optional)
+            
+        Returns:
+            bool: True if status was updated, False otherwise
+            
+        Raises:
+            ValidationError: If the status transition is invalid
+        """
+        if not WorkOrderStatusTransition.is_valid_transition(self.status, new_status):
+            raise ValidationError(f"Invalid status transition from {self.status} to {new_status}")
+            
+        old_status = self.status
+        self.status = new_status
+        
+        # Update timestamps based on status
+        now = timezone.now()
+        if old_status == WorkOrderStatus.PLANNED and new_status == WorkOrderStatus.IN_PROGRESS:
+            self.actual_start = now
+        elif new_status == WorkOrderStatus.COMPLETED:
+            self.actual_end = now
+            self.completion_percentage = 100
+            
+        self.save()
+        
+        # Update parent work order completion percentage
+        self.parent_work_order.calculate_completion_percentage()
+                    
+        return True
 
     def clean(self):
         super().clean()
@@ -411,18 +731,34 @@ class SubWorkOrderProcess(models.Model):
     """
     For sub work orders based on a process component, you can track the individual process steps.
     """
+    PROCESS_STATUS_CHOICES = [
+        ('PENDING', 'Pending'),
+        ('SETUP', 'Machine Setup'),
+        ('RUNNING', 'Running'),
+        ('PAUSED', 'Paused'),
+        ('COMPLETED', 'Completed'),
+        ('FAILED', 'Failed')
+    ]
+    
     sub_work_order = models.ForeignKey(SubWorkOrder, on_delete=models.CASCADE, related_name='processes')
     process = models.ForeignKey(ManufacturingProcess, on_delete=models.PROTECT)
-    machine = models.ForeignKey(Machine, on_delete=models.PROTECT)
+    machine = models.ForeignKey(Machine, on_delete=models.PROTECT, null=True, blank=True)
     sequence_order = models.IntegerField()
     planned_duration_minutes = models.IntegerField(null=True, blank=True)
     actual_duration_minutes = models.IntegerField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=PROCESS_STATUS_CHOICES, default='PENDING')
+    start_time = models.DateTimeField(null=True, blank=True)
+    end_time = models.DateTimeField(null=True, blank=True)
+    operator = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='operated_processes')
+    setup_time_minutes = models.IntegerField(null=True, blank=True)
+    notes = models.TextField(blank=True, null=True)
 
     class Meta:
         ordering = ['sequence_order']
         indexes = [
             models.Index(fields=['sub_work_order']),
             models.Index(fields=['machine']),
+            models.Index(fields=['status']),
         ]
 
     def clean(self):
@@ -430,21 +766,99 @@ class SubWorkOrderProcess(models.Model):
         # Ensure the sub work order is for a process component
         if not self.sub_work_order.is_process_component:
             raise ValidationError("Can only add processes to sub work orders with process components")
+        
         process_component = self.sub_work_order.get_specific_component()
+        
         # Validate machine requirements against the process configuration.
+        if self.machine:
         if process_component.process_config.axis_count and self.machine.axis_count != process_component.process_config.axis_count:
             raise ValidationError("Machine axis count does not match process requirements")
         if self.machine.machine_type != process_component.process_config.process.machine_type:
             raise ValidationError("Machine type does not match process requirements")
+            if self.machine.status != MachineStatus.AVAILABLE:
+                raise ValidationError("Selected machine is not available")
+                
         if self.process != process_component.process_config.process:
             raise ValidationError("Process must match the one specified in the BOM process configuration")
+            
+        # Validate time tracking
+        if self.end_time and self.start_time and self.end_time < self.start_time:
+            raise ValidationError("End time cannot be before start time")
+            
+        # Calculate actual duration if start and end times are set
+        if self.start_time and self.end_time:
+            duration = (self.end_time - self.start_time).total_seconds() / 60
+            if not self.actual_duration_minutes or abs(self.actual_duration_minutes - duration) > 1:
+                self.actual_duration_minutes = int(duration)
+
+    def update_status(self, new_status, user=None):
+        """
+        Update the process status with proper time tracking.
+        
+        Args:
+            new_status: The new status to set
+            user: The operator (optional)
+            
+        Returns:
+            bool: True if status was updated, False otherwise
+        """
+        old_status = self.status
+        self.status = new_status
+        now = timezone.now()
+        
+        # Update timestamps based on status
+        if new_status == 'SETUP' and old_status == 'PENDING':
+            self.start_time = now
+            if user:
+                self.operator = user
+        elif new_status == 'RUNNING' and old_status == 'SETUP':
+            # Calculate setup time
+            if self.start_time:
+                self.setup_time_minutes = int((now - self.start_time).total_seconds() / 60)
+        elif new_status == 'COMPLETED':
+            self.end_time = now
+            # Calculate actual duration
+            if self.start_time:
+                self.actual_duration_minutes = int((now - self.start_time).total_seconds() / 60)
+                
+        self.save()
+        
+        # Update sub work order completion percentage
+        self._update_sub_work_order_completion()
+        
+        return True
+        
+    def _update_sub_work_order_completion(self):
+        """Update the completion percentage of the parent sub work order"""
+        sub_order = self.sub_work_order
+        processes = SubWorkOrderProcess.objects.filter(sub_work_order=sub_order)
+        
+        if not processes.exists():
+            return
+            
+        completed = processes.filter(status='COMPLETED').count()
+        total = processes.count()
+        
+        if total > 0:
+            sub_order.completion_percentage = (completed / total) * 100
+            sub_order.save(update_fields=['completion_percentage'])
+            
+            # If all processes are complete, mark the sub work order as complete
+            if completed == total:
+                try:
+                    sub_order.update_status(WorkOrderStatus.COMPLETED)
+                except ValidationError:
+                    pass
 
     def save(self, *args, **kwargs):
         self.clean()
         super().save(*args, **kwargs)
+        
+        # Update sub work order completion after save
+        self._update_sub_work_order_completion()
 
     def __str__(self):
-        return f"{self.sub_work_order} - {self.process.process_code}"
+        return f"{self.sub_work_order} - {self.process.process_code} ({self.get_status_display()})"
 
 class WorkOrderOutput(BaseModel):
     """
@@ -464,6 +878,8 @@ class WorkOrderOutput(BaseModel):
     notes = models.TextField(blank=True, null=True)
     quarantine_reason = models.TextField(blank=True, null=True, help_text="Reason for quarantine status if applicable")
     inspection_required = models.BooleanField(default=False, help_text="Whether quality inspection is required")
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='created_outputs')
+    production_date = models.DateField(default=timezone.now)
 
     class Meta:
         indexes = [
@@ -471,6 +887,7 @@ class WorkOrderOutput(BaseModel):
             models.Index(fields=['sub_work_order']),
             models.Index(fields=['target_category']),
             models.Index(fields=['inspection_required']),
+            models.Index(fields=['production_date']),
         ]
 
     def clean(self):
@@ -500,6 +917,7 @@ class WorkOrderOutput(BaseModel):
                 raise ValidationError("Quarantine reason is required for items in quarantine status")
             self.inspection_required = True
 
+        # Check that total output doesn't exceed work order quantity
         total_output = WorkOrderOutput.objects.filter(sub_work_order=self.sub_work_order).exclude(pk=self.pk).aggregate(
             total=models.Sum('quantity'))['total'] or 0
         
@@ -523,6 +941,14 @@ class WorkOrderOutput(BaseModel):
         ).aggregate(total=models.Sum('quantity'))['total'] or 0
         
         self.sub_work_order.save()
+        
+        # If all expected quantity is produced, mark the sub work order as completed
+        if self.sub_work_order.output_quantity >= self.sub_work_order.quantity:
+            try:
+                self.sub_work_order.update_status(WorkOrderStatus.COMPLETED)
+            except ValidationError:
+                # Log but continue
+                pass
 
     def __str__(self):
         status_str = self.get_status_display()
