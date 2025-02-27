@@ -354,12 +354,40 @@ class ManufacturingProcessViewSet(viewsets.ModelViewSet):
         return super().handle_exception(exc)
 
 class BOMProcessConfigViewSet(viewsets.ModelViewSet):
-    queryset = BOMProcessConfig.objects.select_related('process')
+    queryset = BOMProcessConfig.objects.select_related(
+        'process',
+        'raw_material',
+        'process_product',
+        'process_product__parent_product'
+    ).all()
     serializer_class = BOMProcessConfigSerializer
     permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['process', 'axis_count']
-    
+    filter_backends = [DjangoFilterBackend, SearchFilter]
+    filterset_fields = {
+        'process__machine_type': ['exact'],
+        'axis_count': ['exact', 'isnull'],
+        'process_product__parent_product': ['exact'],
+        'raw_material': ['exact', 'isnull']
+    }
+    search_fields = [
+        'process__process_name',
+        'process__process_code',
+        'raw_material__material_code',
+        'process_product__product_code',
+        'process_product__description'
+    ]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        # Add any custom filtering here if needed
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+    def perform_update(self, serializer):
+        serializer.save()
+
     def handle_exception(self, exc):
         if isinstance(exc, ValidationError):
             return Response(

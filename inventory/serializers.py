@@ -1,8 +1,10 @@
 from rest_framework import serializers
 from .models import (
     InventoryCategory, UnitOfMeasure, Product,
-    TechnicalDrawing, RawMaterial, InventoryTransaction
+    TechnicalDrawing, RawMaterial, InventoryTransaction,
+    ProcessProduct
 )
+from erp_core.serializers import UserSerializer, CustomerSerializer
 
 class InventoryCategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -116,4 +118,41 @@ class InventoryTransactionSerializer(serializers.ModelSerializer):
         elif product_type == 'SEMI':
             return ['PROSES', 'MAMUL', 'KARANTINA', 'HURDA']
         else:  # MONTAGED
-            return ['MAMUL', 'KARANTINA', 'HURDA'] 
+            return ['MAMUL', 'KARANTINA', 'HURDA']
+
+class ProcessProductSerializer(serializers.ModelSerializer):
+    parent_product_details = ProductSerializer(source='parent_product', read_only=True)
+    bom_process_config_details = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ProcessProduct
+        fields = [
+            'id', 'product_code', 'description', 'current_stock',
+            'parent_product', 'parent_product_details',
+            'bom_process_config', 'bom_process_config_details'
+        ]
+        extra_kwargs = {
+            'description': {'required': False},
+            'current_stock': {'required': False}
+        }
+
+    def get_bom_process_config_details(self, obj):
+        if obj.bom_process_config:
+            return {
+                'id': obj.bom_process_config.id,
+                'process_name': obj.bom_process_config.process.process_name,
+                'process_code': obj.bom_process_config.process.process_code,
+                'machine_type': obj.bom_process_config.process.machine_type,
+                'axis_count': obj.bom_process_config.axis_count,
+                'estimated_duration_minutes': obj.bom_process_config.estimated_duration_minutes
+            }
+        return None
+
+    def validate(self, data):
+        if 'parent_product' in data:
+            parent_product = data['parent_product']
+            if parent_product.product_type not in ['SEMI', 'SINGLE']:
+                raise serializers.ValidationError(
+                    "Parent product must be of type SEMI or SINGLE"
+                )
+        return data 

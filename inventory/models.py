@@ -116,6 +116,61 @@ class Product(BaseModel):
 
         return result
 
+class ProcessProduct(BaseModel):
+    """
+    Represents a process-specific semi-product that is created during manufacturing.
+    These products are always of type SEMI and category PROSES.
+    """
+    product_code = models.CharField(max_length=50, unique=True)
+    parent_product = models.ForeignKey(
+        Product, 
+        on_delete=models.PROTECT,
+        related_name='process_products',
+        help_text="The parent product (SEMI or SINGLE) this process product belongs to"
+    )
+    description = models.TextField(blank=True, null=True)
+    current_stock = models.IntegerField(default=0)
+    
+    class Meta:
+        verbose_name = "Process Product"
+        verbose_name_plural = "Process Products"
+        ordering = ['product_code']
+        indexes = [
+            models.Index(fields=['parent_product']),
+            models.Index(fields=['product_code']),
+        ]
+
+    def clean(self):
+        # Ensure parent product is of correct type
+        if self.parent_product.product_type not in ['SEMI', 'SINGLE']:
+            raise ValidationError("Parent product must be of type SEMI or SINGLE")
+        
+        # Set product code based on parent if not provided
+        if not self.product_code:
+            self.product_code = f"{self.parent_product.product_code}"
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.product_code} - {self.parent_product.product_name}"
+
+    @property
+    def inventory_category(self):
+        """Always returns PROSES category"""
+        return InventoryCategory.objects.get(name='PROSES')
+
+    @property
+    def product_type(self):
+        """Always returns SEMI type"""
+        return ProductType.SEMI
+
+    @property
+    def processes(self):
+        """Returns a list of all manufacturing processes associated with this product"""
+        return [config.process for config in self.bom_process_configs.all()]
+
 class TechnicalDrawing(BaseModel):
     product = models.ForeignKey(Product, on_delete=models.CASCADE)
     version = models.CharField(max_length=20)

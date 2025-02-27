@@ -95,6 +95,15 @@ class ManufacturingProcess(BaseModel):
 
 class BOMProcessConfig(models.Model):
     process = models.ForeignKey(ManufacturingProcess, on_delete=models.PROTECT)
+    raw_material = models.ForeignKey('inventory.RawMaterial', on_delete=models.PROTECT, null=True, blank=True)
+    process_product = models.OneToOneField(
+        'inventory.ProcessProduct',
+        on_delete=models.PROTECT,
+        related_name='bom_process_config',
+        null=True,
+        blank=True,
+        help_text="Process product associated with this configuration"
+    )
     axis_count = models.CharField(
         max_length=20,
         choices=AxisCount.choices,
@@ -771,10 +780,10 @@ class SubWorkOrderProcess(models.Model):
         
         # Validate machine requirements against the process configuration.
         if self.machine:
-        if process_component.process_config.axis_count and self.machine.axis_count != process_component.process_config.axis_count:
-            raise ValidationError("Machine axis count does not match process requirements")
-        if self.machine.machine_type != process_component.process_config.process.machine_type:
-            raise ValidationError("Machine type does not match process requirements")
+            if process_component.process_config.axis_count and self.machine.axis_count != process_component.process_config.axis_count:
+                raise ValidationError("Machine axis count does not match process requirements")
+            if self.machine.machine_type != process_component.process_config.process.machine_type:
+                raise ValidationError("Machine type does not match process requirements")
             if self.machine.status != MachineStatus.AVAILABLE:
                 raise ValidationError("Selected machine is not available")
                 

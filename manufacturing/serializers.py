@@ -36,13 +36,16 @@ class BOMProcessConfigSerializer(serializers.ModelSerializer):
     process_name = serializers.CharField(source='process.process_name', read_only=True)
     process_code = serializers.CharField(source='process.process_code', read_only=True)
     machine_type = serializers.CharField(source='process.machine_type', read_only=True)
+    raw_material_details = RawMaterialSerializer(source='raw_material', read_only=True)
+    process_product_details = serializers.SerializerMethodField()
 
     class Meta:
         model = BOMProcessConfig
         fields = [
             'id', 'process', 'process_name', 'process_code',
             'machine_type', 'axis_count', 'estimated_duration_minutes',
-            'tooling_requirements', 'quality_checks'
+            'tooling_requirements', 'quality_checks', 'raw_material_details',
+            'process_product', 'process_product_details'
         ]
         extra_kwargs = {
             'axis_count': {'required': False},
@@ -51,6 +54,18 @@ class BOMProcessConfigSerializer(serializers.ModelSerializer):
             'quality_checks': {'required': False}
         }
 
+    def get_process_product_details(self, obj):
+        if obj.process_product:
+            return {
+                'id': obj.process_product.id,
+                'product_code': obj.process_product.product_code,
+                'description': obj.process_product.description,
+                'parent_product_code': obj.process_product.parent_product.product_code,
+                'parent_product_name': obj.process_product.parent_product.product_name,
+                'current_stock': obj.process_product.current_stock
+            }
+        return None
+
     def validate_estimated_duration_minutes(self, value):
         if value is not None and value <= 0:
             raise serializers.ValidationError("Estimated duration must be a positive number")
@@ -58,13 +73,12 @@ class BOMProcessConfigSerializer(serializers.ModelSerializer):
 
 class ProcessComponentSerializer(serializers.ModelSerializer):
     process_config = BOMProcessConfigSerializer(read_only=True)
-    raw_material = RawMaterialSerializer(read_only=True)
 
     class Meta:
         model = ProcessComponent
         fields = [
             'id', 'bom', 'sequence_order', 'quantity',
-            'notes', 'process_config', 'raw_material'
+            'notes', 'process_config'
         ]
         extra_kwargs = {
             'quantity': {'required': False}

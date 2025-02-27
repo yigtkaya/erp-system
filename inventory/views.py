@@ -8,16 +8,20 @@ from drf_yasg import openapi
 from django.db.models import Q
 from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework.filters import SearchFilter
 
 from .models import (
     InventoryCategory, UnitOfMeasure, Product,
-    TechnicalDrawing, RawMaterial, InventoryTransaction, UnitOfMeasure
+    TechnicalDrawing, RawMaterial, InventoryTransaction, UnitOfMeasure,
+    ProcessProduct
 )
 from .serializers import (
     InventoryCategorySerializer, UnitOfMeasureSerializer,
     ProductSerializer, TechnicalDrawingDetailSerializer,
     TechnicalDrawingListSerializer, RawMaterialSerializer, 
-    InventoryTransactionSerializer, UnitOfMeasureSerializer
+    InventoryTransactionSerializer, UnitOfMeasureSerializer,
+    ProcessProductSerializer
 )
 
 class UnitOfMeasureViewSet(viewsets.ReadOnlyModelViewSet):
@@ -508,3 +512,37 @@ class MaterialTypeChoicesAPIView(APIView):
         field = RawMaterial._meta.get_field('material_type')
         choices = [{'value': value, 'display_name': display} for (value, display) in field.choices]
         return Response(choices)
+
+class ProcessProductViewSet(viewsets.ModelViewSet):
+    queryset = ProcessProduct.objects.select_related(
+        'parent_product',
+        'bom_process_config',
+        'bom_process_config__process'
+    ).all()
+    serializer_class = ProcessProductSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter]
+    filterset_fields = {
+        'parent_product': ['exact'],
+        'bom_process_config': ['exact', 'isnull'],
+        'current_stock': ['exact', 'gt', 'lt', 'gte', 'lte']
+    }
+    search_fields = [
+        'product_code',
+        'description',
+        'parent_product__product_name',
+        'parent_product__product_code',
+        'bom_process_config__process__process_name',
+        'bom_process_config__process__process_code'
+    ]
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        # Add any custom filtering here if needed
+        return queryset
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+    def perform_update(self, serializer):
+        serializer.save()
