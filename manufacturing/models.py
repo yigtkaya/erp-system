@@ -113,8 +113,8 @@ class BOMProcessConfig(models.Model):
         null=True
     )
     estimated_duration_minutes = models.IntegerField(blank=True, null=True)
-    tooling_requirements = models.JSONField(blank=True, null=True)
-    quality_checks = models.JSONField(blank=True, null=True)
+    tooling_requirements = models.TextField(blank=True, null=True)
+    quality_checks = models.TextField(blank=True, null=True)
 
     class Meta:
         verbose_name = "BOM Process Configuration"
