@@ -515,30 +515,24 @@ class MaterialTypeChoicesAPIView(APIView):
 
 class ProcessProductViewSet(viewsets.ModelViewSet):
     queryset = ProcessProduct.objects.select_related(
-        'parent_product',
-        'bom_process_config',
-        'bom_process_config__process'
+        'parent_product'
     ).all()
     serializer_class = ProcessProductSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = {
         'parent_product': ['exact'],
-        'bom_process_config': ['exact', 'isnull'],
         'current_stock': ['exact', 'gt', 'lt', 'gte', 'lte']
     }
     search_fields = [
         'product_code',
         'description',
         'parent_product__product_name',
-        'parent_product__product_code',
-        'bom_process_config__process__process_name',
-        'bom_process_config__process__process_code'
+        'parent_product__product_code'
     ]
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        # Add any custom filtering here if needed
         return queryset
 
     def perform_create(self, serializer):

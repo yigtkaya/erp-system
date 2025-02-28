@@ -122,7 +122,7 @@ class WorkOrderOutputAdmin(admin.ModelAdmin):
 
 @admin.register(BOMProcessConfig)
 class BOMProcessConfigAdmin(admin.ModelAdmin):
-    list_display = ('process', 'raw_material', 'get_axis_count', 'get_duration', 'get_process_product')
+    list_display = ('process', 'raw_material', 'get_axis_count', 'get_duration', 'get_process_products')
     list_filter = (
         'process__machine_type',
         'raw_material',
@@ -139,9 +139,9 @@ class BOMProcessConfigAdmin(admin.ModelAdmin):
         ('Process Information', {
             'fields': ('process', 'raw_material')
         }),
-        ('Product', {
+        ('Products', {
             'fields': ('process_product',),
-            'description': 'Select the process product associated with this configuration'
+            'description': 'Select the process products associated with this configuration'
         }),
         ('Configuration', {
             'fields': ('axis_count', 'estimated_duration_minutes'),
@@ -163,9 +163,9 @@ class BOMProcessConfigAdmin(admin.ModelAdmin):
         return f"{obj.estimated_duration_minutes} minutes" if obj.estimated_duration_minutes else 'Not specified'
     get_duration.short_description = 'Estimated Duration'
 
-    def get_process_product(self, obj):
-        return obj.process_product.product_code if obj.process_product else "No product"
-    get_process_product.short_description = 'Process Product'
+    def get_process_products(self, obj):
+        return ", ".join([pp.product_code for pp in obj.process_product.all()]) or "No products"
+    get_process_products.short_description = 'Process Products'
 
 @admin.register(SubWorkOrderProcess)
 class SubWorkOrderProcessAdmin(admin.ModelAdmin):

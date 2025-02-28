@@ -51,7 +51,8 @@ class BOMProcessConfigSerializer(serializers.ModelSerializer):
             'axis_count': {'required': False},
             'estimated_duration_minutes': {'required': False},
             'tooling_requirements': {'required': False},
-            'quality_checks': {'required': False}
+            'quality_checks': {'required': False},
+            'process_product': {'required': False}
         }
 
     def get_process_product_details(self, obj):

@@ -356,7 +356,8 @@ class ManufacturingProcessViewSet(viewsets.ModelViewSet):
 class BOMProcessConfigViewSet(viewsets.ModelViewSet):
     queryset = BOMProcessConfig.objects.select_related(
         'process',
-        'raw_material',
+        'raw_material'
+    ).prefetch_related(
         'process_product',
         'process_product__parent_product'
     ).all()
@@ -379,7 +380,6 @@ class BOMProcessConfigViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         queryset = super().get_queryset()
-        # Add any custom filtering here if needed
         return queryset
 
     def perform_create(self, serializer):
