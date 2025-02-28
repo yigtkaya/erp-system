@@ -23,6 +23,7 @@ class MachineType(models.TextChoices):
     PROCESSING_CENTER = 'İşleme Merkezi', 'İşleme Merkezi'
     CNC_TORNA = 'CNC Torna Merkezi', 'CNC Torna Merkezi'
     CNC_KAYAR_OTOMAT = 'CNC Kayar Otomat', 'CNC Kayar Otomat'
+    NONE = 'Yok', 'Yok'
 
 class Machine(BaseModel):
     machine_code = models.CharField(max_length=50, unique=True)
