@@ -99,7 +99,7 @@ class BOMProcessConfig(models.Model):
     raw_material = models.ForeignKey('inventory.RawMaterial', on_delete=models.PROTECT, null=True, blank=True)
     process_product = models.OneToOneField(
         'inventory.ProcessProduct',
-        on_delete=models.PROTECT,
+        on_delete=models.SET_NULL,
         related_name='bom_process_config',
         null=True,
         blank=True,

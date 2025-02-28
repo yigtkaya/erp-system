@@ -5,6 +5,7 @@ from .models import (
     ProcessProduct
 )
 from erp_core.serializers import UserSerializer, CustomerSerializer
+from django.core.exceptions import ObjectDoesNotExist
 
 class InventoryCategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -133,19 +134,23 @@ class ProcessProductSerializer(serializers.ModelSerializer):
         ]
         extra_kwargs = {
             'description': {'required': False},
-            'current_stock': {'required': False}
+            'current_stock': {'required': False},
+            'bom_process_config': {'required': False, 'allow_null': True}
         }
 
     def get_bom_process_config_details(self, obj):
-        if obj.bom_process_config:
-            return {
-                'id': obj.bom_process_config.id,
-                'process_name': obj.bom_process_config.process.process_name,
-                'process_code': obj.bom_process_config.process.process_code,
-                'machine_type': obj.bom_process_config.process.machine_type,
-                'axis_count': obj.bom_process_config.axis_count,
-                'estimated_duration_minutes': obj.bom_process_config.estimated_duration_minutes
-            }
+        try:
+            if obj.bom_process_config:
+                return {
+                    'id': obj.bom_process_config.id,
+                    'process_name': obj.bom_process_config.process.process_name,
+                    'process_code': obj.bom_process_config.process.process_code,
+                    'machine_type': obj.bom_process_config.process.machine_type,
+                    'axis_count': obj.bom_process_config.axis_count,
+                    'estimated_duration_minutes': obj.bom_process_config.estimated_duration_minutes
+                }
+        except ObjectDoesNotExist:
+            pass
         return None
 
     def validate(self, data):
