@@ -41,7 +41,9 @@ class UnitOfMeasure(models.Model):
 class Product(BaseModel):
     product_code = models.CharField(max_length=50, unique=True)
     product_name = models.CharField(max_length=100)
+    project_name = models.CharField(max_length=100, null=True, blank=True)
     product_type = models.CharField(max_length=20, choices=ProductType.choices)
+    multicode = models.IntegerField(null=True, blank=True)
     description = models.TextField(blank=True, null=True)
     current_stock = models.IntegerField(default=0)
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, null=True, blank=True)
