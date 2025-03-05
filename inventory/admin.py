@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Product, RawMaterial, InventoryTransaction, InventoryCategory, UnitOfMeasure, TechnicalDrawing
+from .models import Product, RawMaterial, InventoryTransaction, InventoryCategory, UnitOfMeasure, TechnicalDrawing, Tool, Holder
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
@@ -47,3 +47,59 @@ class TechnicalDrawingAdmin(admin.ModelAdmin):
     list_filter = ('is_current', 'effective_date')
     search_fields = ('drawing_code', 'version', 'product__product_name')
     ordering = ('-effective_date',)
+
+@admin.register(Tool)
+class ToolAdmin(admin.ModelAdmin):
+    list_display = ('stock_code', 'product_code', 'tool_type', 'status', 'quantity', 'row', 'column')
+    list_filter = ('tool_type', 'status', 'tool_material')
+    search_fields = ('stock_code', 'product_code', 'description')
+    ordering = ('stock_code',)
+    readonly_fields = ('updated_at',)
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('stock_code', 'product_code', 'supplier_name', 'tool_type', 'status', 'description')
+        }),
+        ('Pricing', {
+            'fields': ('unit_price_tl', 'unit_price_euro', 'unit_price_usd')
+        }),
+        ('Tool Specifications', {
+            'fields': ('tool_insert_code', 'tool_material', 'tool_diameter', 'tool_length', 'tool_width',
+                      'tool_height', 'tool_angle', 'tool_radius', 'tool_connection_diameter')
+        }),
+        ('Location', {
+            'fields': ('row', 'column', 'table_id')
+        }),
+        ('Stock Information', {
+            'fields': ('quantity',)
+        }),
+        ('System Fields', {
+            'fields': ('updated_at',),
+            'classes': ('collapse',)
+        }),
+    )
+
+@admin.register(Holder)
+class HolderAdmin(admin.ModelAdmin):
+    list_display = ('stock_code', 'product_code', 'holder_type', 'status', 'row', 'column')
+    list_filter = ('holder_type', 'status', 'water_cooling', 'distance_cooling')
+    search_fields = ('stock_code', 'product_code', 'description')
+    ordering = ('stock_code',)
+    readonly_fields = ('updated_at',)
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('stock_code', 'product_code', 'supplier_name', 'holder_type', 'status', 'description')
+        }),
+        ('Pricing', {
+            'fields': ('unit_price_tl', 'unit_price_euro', 'unit_price_usd')
+        }),
+        ('Holder Specifications', {
+            'fields': ('holder_type_enum', 'pulley_type', 'water_cooling', 'distance_cooling', 'tool_connection_diameter')
+        }),
+        ('Location', {
+            'fields': ('row', 'column', 'table_id')
+        }),
+        ('System Fields', {
+            'fields': ('updated_at',),
+            'classes': ('collapse',)
+        }),
+    )

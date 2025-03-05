@@ -276,3 +276,70 @@ class InventoryTransaction(BaseModel):
         indexes = [
             models.Index(fields=['reference_id', 'transaction_type']),
         ]
+
+class Tool(BaseModel):
+    stock_code = models.CharField(max_length=50, primary_key=True)
+    supplier_name = models.CharField(max_length=100)
+    product_code = models.CharField(max_length=50)
+    unit_price_tl = models.DecimalField(max_digits=10, decimal_places=2)
+    unit_price_euro = models.DecimalField(max_digits=10, decimal_places=2)
+    unit_price_usd = models.DecimalField(max_digits=10, decimal_places=2)
+    tool_insert_code = models.CharField(max_length=100)
+    tool_material = models.CharField(max_length=100)
+    tool_diameter = models.DecimalField(max_digits=10, decimal_places=2)
+    tool_length = models.DecimalField(max_digits=10, decimal_places=2)
+    tool_width = models.DecimalField(max_digits=10, decimal_places=2)
+    tool_height = models.DecimalField(max_digits=10, decimal_places=2)
+    tool_angle = models.DecimalField(max_digits=10, decimal_places=2)
+    tool_radius = models.DecimalField(max_digits=10, decimal_places=2)
+    tool_connection_diameter = models.DecimalField(max_digits=10, decimal_places=2)
+    tool_type = models.CharField(max_length=50)
+    status = models.CharField(max_length=50)
+    row = models.IntegerField()
+    column = models.IntegerField()
+    table_id = models.UUIDField()
+    updated_at = models.DateTimeField(auto_now=True)
+    description = models.TextField(null=True, blank=True)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2)
+
+    class Meta:
+        verbose_name = "Tool"
+        verbose_name_plural = "Tools"
+        indexes = [
+            models.Index(fields=['product_code']),
+            models.Index(fields=['row', 'column']),
+        ]
+
+    def __str__(self):
+        return f"{self.stock_code} - {self.tool_type}"
+
+class Holder(BaseModel):
+    stock_code = models.CharField(max_length=50, primary_key=True)
+    supplier_name = models.CharField(max_length=100)
+    product_code = models.CharField(max_length=50)
+    unit_price_tl = models.DecimalField(max_digits=10, decimal_places=2)
+    unit_price_euro = models.DecimalField(max_digits=10, decimal_places=2)
+    unit_price_usd = models.DecimalField(max_digits=10, decimal_places=2)
+    holder_type = models.CharField(max_length=50)
+    pulley_type = models.CharField(max_length=50)
+    water_cooling = models.BooleanField(default=False)
+    distance_cooling = models.BooleanField(default=False)
+    tool_connection_diameter = models.DecimalField(max_digits=10, decimal_places=2)
+    holder_type_enum = models.CharField(max_length=50)
+    status = models.CharField(max_length=50)
+    row = models.IntegerField()
+    column = models.IntegerField()
+    table_id = models.UUIDField()
+    updated_at = models.DateTimeField(auto_now=True)
+    description = models.TextField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Holder"
+        verbose_name_plural = "Holders"
+        indexes = [
+            models.Index(fields=['product_code']),
+            models.Index(fields=['row', 'column']),
+        ]
+
+    def __str__(self):
+        return f"{self.stock_code} - {self.holder_type}"

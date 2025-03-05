@@ -1,7 +1,8 @@
 from rest_framework import serializers
 from .models import (
     InventoryCategory, UnitOfMeasure, Product,
-    TechnicalDrawing, RawMaterial, InventoryTransaction
+    TechnicalDrawing, RawMaterial, InventoryTransaction,
+    Tool, Holder
 )
 from erp_core.serializers import UserSerializer, CustomerSerializer
 from django.core.exceptions import ObjectDoesNotExist
@@ -118,4 +119,16 @@ class InventoryTransactionSerializer(serializers.ModelSerializer):
         elif product_type == 'SEMI':
             return ['PROSES', 'MAMUL', 'KARANTINA', 'HURDA']
         else:  # MONTAGED
-            return ['MAMUL', 'KARANTINA', 'HURDA'] 
+            return ['MAMUL', 'KARANTINA', 'HURDA']
+
+class ToolSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Tool
+        fields = '__all__'
+        read_only_fields = ('updated_at',)
+
+class HolderSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Holder
+        fields = '__all__'
+        read_only_fields = ('updated_at',) 

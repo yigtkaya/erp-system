@@ -9,17 +9,19 @@ from django.db.models import Q
 from rest_framework.exceptions import ValidationError
 from rest_framework.views import APIView
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework.filters import SearchFilter
+from rest_framework.filters import SearchFilter, OrderingFilter
 
 from .models import (
     InventoryCategory, UnitOfMeasure, Product,
-    TechnicalDrawing, RawMaterial, InventoryTransaction, UnitOfMeasure
+    TechnicalDrawing, RawMaterial, InventoryTransaction, UnitOfMeasure,
+    Tool, Holder
 )
 from .serializers import (
     InventoryCategorySerializer, UnitOfMeasureSerializer,
     ProductSerializer, TechnicalDrawingDetailSerializer,
     TechnicalDrawingListSerializer, RawMaterialSerializer, 
-    InventoryTransactionSerializer, UnitOfMeasureSerializer
+    InventoryTransactionSerializer, UnitOfMeasureSerializer,
+    ToolSerializer, HolderSerializer
 )
 
 class UnitOfMeasureViewSet(viewsets.ReadOnlyModelViewSet):
@@ -511,3 +513,41 @@ class MaterialTypeChoicesAPIView(APIView):
         return Response({
             'choices': [{'value': value, 'display': display} for value, display in choices]
         })
+
+class ToolViewSet(viewsets.ModelViewSet):
+    queryset = Tool.objects.all()
+    serializer_class = ToolSerializer
+    lookup_field = 'stock_code'
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['tool_type', 'status', 'tool_material']
+    search_fields = ['stock_code', 'product_code', 'description']
+    ordering_fields = ['stock_code', 'updated_at', 'tool_type']
+    ordering = ['stock_code']
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        row = self.request.query_params.get('row', None)
+        column = self.request.query_params.get('column', None)
+        
+        if row is not None and column is not None:
+            queryset = queryset.filter(row=row, column=column)
+        return queryset
+
+class HolderViewSet(viewsets.ModelViewSet):
+    queryset = Holder.objects.all()
+    serializer_class = HolderSerializer
+    lookup_field = 'stock_code'
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['holder_type', 'status', 'water_cooling', 'distance_cooling']
+    search_fields = ['stock_code', 'product_code', 'description']
+    ordering_fields = ['stock_code', 'updated_at', 'holder_type']
+    ordering = ['stock_code']
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        row = self.request.query_params.get('row', None)
+        column = self.request.query_params.get('column', None)
+        
+        if row is not None and column is not None:
+            queryset = queryset.filter(row=row, column=column)
+        return queryset
