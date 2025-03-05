@@ -207,7 +207,7 @@ class BOMComponent(BaseModel):
     bom = models.ForeignKey(BOM, on_delete=models.CASCADE, related_name='components')
     sequence_order = models.IntegerField()
     quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1.0)
-    notes = models.TextField(blank=True)
+    notes = models.TextField(blank=True, null=True)
     lead_time_days = models.IntegerField(
         null=True, 
         blank=True,

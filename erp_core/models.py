@@ -10,6 +10,11 @@ class ProductType(models.TextChoices):
     SEMI = 'SEMI', 'Semi'
     SINGLE = 'SINGLE', 'Single'
     STANDARD_PART = 'STANDARD_PART', 'Standard Part'  # Added
+    SPRING = 'SPRING', 'Spring'
+
+class ToolType(models.TextChoices):
+
+class HolderType(models.TextChoices):
 
 class MaterialType(models.TextChoices):
     STEEL = 'STEEL', 'Steel'
