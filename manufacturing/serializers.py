@@ -94,14 +94,15 @@ class WorkflowProcessCreateUpdateSerializer(serializers.ModelSerializer):
         return data
 
 class BOMComponentSerializer(serializers.ModelSerializer):
-    material_code = serializers.CharField(source='material.material_code', read_only=True)
-    material_name = serializers.CharField(source='material.name', read_only=True)
+    product_code = serializers.CharField(source='product.product_code', read_only=True)
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
+    product_type = serializers.CharField(source='product.product_type', read_only=True)
 
     class Meta:
         model = BOMComponent
         fields = [
             'id', 'bom', 'sequence_order', 'quantity', 
-            'material', 'material_code', 'material_name',
+            'product', 'product_code', 'product_name', 'product_type',
             'lead_time_days', 'notes'
         ]
         read_only_fields = ['id']
@@ -111,7 +112,7 @@ class BOMComponentCreateUpdateSerializer(serializers.ModelSerializer):
         model = BOMComponent
         fields = [
             'bom', 'sequence_order', 'quantity',
-            'material', 'lead_time_days', 'notes'
+            'product', 'lead_time_days', 'notes'
         ]
 
     def validate(self, data):
@@ -151,14 +152,71 @@ class BOMCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = BOM
         fields = [
-            'id', 'product', 'version', 'is_active'
+            'id', 'product', 'version', 'is_active', 'notes'
         ]
     
     def validate(self, data):
+        print("\n=== BOM Serializer Validation Debug ===")
+        print("1. Incoming data:", data)
+        print("2. Data type:", type(data))
+        
         if 'product' in data:
-            product = data['product']
-            if product.product_type == 'STANDARD_PART':
-                raise serializers.ValidationError("Standard products (bought externally) cannot have a BOM")
+            try:
+                from inventory.models import Product
+                product_code = data['product']
+                print("3. Looking for product with code:", product_code)
+                print("4. Product code type:", type(product_code))
+                
+                # If product is already a Product instance, use it directly
+                if isinstance(product_code, Product):
+                    product = product_code
+                else:
+                    # Otherwise, look up by product_code
+                    product = Product.objects.get(product_code=product_code)
+                
+                print("5. Found product:", product.product_code)
+                print("6. Product type:", product.product_type)
+                
+                if product.product_type == 'STANDARD_PART':
+                    print("7. Error: Product is a STANDARD_PART")
+                    raise serializers.ValidationError({
+                        "product": "Standard products (bought externally) cannot have a BOM"
+                    })
+                
+                # Check for existing BOM with same product and version
+                if 'version' in data:
+                    print("8. Checking for existing BOM with version:", data['version'])
+                    existing_bom = BOM.objects.filter(
+                        product=product,
+                        version=data['version']
+                    )
+                    if self.instance:
+                        existing_bom = existing_bom.exclude(pk=self.instance.pk)
+                    
+                    if existing_bom.exists():
+                        print("9. Error: BOM already exists with this version")
+                        print("10. Existing BOM:", existing_bom.first())
+                        print("11. Is active:", existing_bom.first().is_active)
+                        raise serializers.ValidationError({
+                            "version": f"BOM with version {data['version']} already exists for this product"
+                        })
+                    print("9. No existing BOM found with this version")
+                
+                # Replace the product code with the actual product instance
+                data['product'] = product
+                print("10. Validation successful, returning data:", data)
+                
+            except Product.DoesNotExist:
+                error_msg = f"Product with code {product_code} does not exist"
+                print("Error:", error_msg)
+                raise serializers.ValidationError({
+                    "product": error_msg
+                })
+            except Exception as e:
+                print("Unexpected error during validation:")
+                print("Type:", type(e))
+                print("Details:", str(e))
+                raise
         return data
 
 class BOMWithComponentsSerializer(serializers.ModelSerializer):
@@ -167,8 +225,7 @@ class BOMWithComponentsSerializer(serializers.ModelSerializer):
     class Meta:
         model = BOM
         fields = [
-            'id', 'product', 'version', 'is_active',
-            'components', 'created_at', 'modified_at'
+            'id', 'product', 'version', 'is_active', 'notes'
         ]
     
     def validate(self, data):

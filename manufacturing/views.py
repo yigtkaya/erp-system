@@ -9,6 +9,7 @@ from erp_core.throttling import CustomScopedRateThrottle
 from erp_core.models import WorkOrderStatus, MachineStatus
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
+from rest_framework import serializers
 
 from .models import (
     WorkOrder, BOM, Machine, ManufacturingProcess,
@@ -153,8 +154,7 @@ class BOMViewSet(viewsets.ModelViewSet):
             'approved_by'
         ).prefetch_related(
             'components',
-            'components__product',
-            'components__raw_material'
+            'components__product'
         ).all()
     
     def get_serializer_class(self):
@@ -163,6 +163,52 @@ class BOMViewSet(viewsets.ModelViewSet):
         elif self.action == 'create_with_components':
             return BOMWithComponentsSerializer
         return BOMSerializer
+
+    def create(self, request, *args, **kwargs):
+        print("\n=== BOM Creation Debug ===")
+        print("1. Request Data:", request.data)
+        print("2. Request Method:", request.method)
+        print("3. Content Type:", request.content_type)
+        print("4. Headers:", request.headers)
+        
+        serializer = self.get_serializer(data=request.data)
+        try:
+            print("5. Attempting validation...")
+            if not serializer.is_valid():
+                print("6. Validation failed!")
+                print("7. Validation errors:", serializer.errors)
+                return Response(
+                    serializer.errors,
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            print("6. Validation successful!")
+            print("7. Validated data:", serializer.validated_data)
+            
+            print("8. Attempting to save...")
+            instance = serializer.save()
+            print("9. BOM created successfully with ID:", instance.id)
+            
+            return Response(
+                BOMSerializer(instance).data,
+                status=status.HTTP_201_CREATED
+            )
+            
+        except serializers.ValidationError as e:
+            print("Error: Validation error occurred!")
+            print("Details:", e.detail)
+            return Response(
+                {"error": str(e.detail)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            print("Error: Unexpected error occurred!")
+            print("Type:", type(e))
+            print("Details:", str(e))
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
     def perform_destroy(self, instance):
         instance.is_active = False
@@ -267,14 +313,14 @@ class BOMComponentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['bom']
-    search_fields = ['material__material_code', 'material__name', 'notes']
-    
+    search_fields = ['product__product_code', 'product__product_name', 'notes']
+
     def get_queryset(self):
         return BOMComponent.objects.select_related(
             'bom',
-            'material'
+            'product'
         ).all()
-    
+
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
             return BOMComponentCreateUpdateSerializer

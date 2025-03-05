@@ -32,13 +32,13 @@ class BOMAdmin(admin.ModelAdmin):
 
 @admin.register(BOMComponent)
 class BOMComponentAdmin(admin.ModelAdmin):
-    list_display = ('bom', 'material', 'quantity', 'sequence_order')
+    list_display = ('bom', 'product', 'quantity', 'sequence_order')
     list_filter = ('bom__product__product_type',)
-    search_fields = ('material__material_code', 'material__name', 'notes')
-    raw_id_fields = ('bom', 'material')
+    search_fields = ('product__product_code', 'product__product_name', 'notes')
+    raw_id_fields = ('bom', 'product')
     fieldsets = (
         (None, {
-            'fields': ('bom', 'sequence_order', 'quantity', 'material')
+            'fields': ('bom', 'sequence_order', 'quantity', 'product')
         }),
         ('Additional Information', {
             'fields': ('lead_time_days', 'notes'),

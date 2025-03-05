@@ -98,10 +98,6 @@ class ManufacturingProcess(BaseModel):
 class BOM(BaseModel):
     """
     The BOM is associated with a product that is manufactured.
-    
-    • Standard products (bought externally) are not allowed a BOM.
-    • For Montaged products the BOM can only have Product components.
-    • For Semi and Single products the BOM is based on a raw material process and may include a product component if a purchased (Standard) part is used.
     """
     product = models.ForeignKey(
         'inventory.Product',
@@ -141,31 +137,10 @@ class BOM(BaseModel):
 
     def clean(self):
         super().clean()
-        # Disallow BOM for externally purchased Standard products.
+        # Only validate that Standard products cannot have BOMs
         if self.product.product_type == ProductType.STANDARD_PART:
             raise ValidationError("Standard products (bought externally) cannot have a BOM")
-        
-        # Validate components based on the parent product type
-        if hasattr(self, 'components'):
-            # Get components by type
-            product_components = self.components.filter(component_type='PRODUCT')
-            process_components = self.components.filter(component_type='PROCESS')
-            
-            if self.product.product_type == ProductType.MONTAGED:
-                # Montaged BOMs may only contain product components.
-                if process_components.exists():
-                    raise ValidationError("Montaged products cannot have process components")
-                # In a montaged BOM, each product component must reference either a Semi or a Standard product.
-                for pc in product_components:
-                    if pc.product.product_type not in [ProductType.SEMI, ProductType.STANDARD_PART]:
-                        raise ValidationError("Montaged products can only contain Semi or Standard products as components")
-            elif self.product.product_type in [ProductType.SEMI, ProductType.SINGLE]:
-                # For Semi and Single products, process components are required to define the raw material process.
-                # If a product component is used, it must reference a Standard product.
-                for pc in product_components:
-                    if pc.product.product_type != ProductType.STANDARD_PART:
-                        raise ValidationError("For Semi/Single products, product components must be Standard (purchased) parts")
-    
+
     def approve(self, user):
         """
         Approve the BOM, setting approved_by and approved_at fields.
@@ -216,7 +191,7 @@ class BOM(BaseModel):
                 quantity=component.quantity,
                 notes=component.notes,
                 lead_time_days=component.lead_time_days,
-                material=component.material
+                product=component.product
             )
         
         return new_bom
@@ -226,8 +201,8 @@ class BOM(BaseModel):
 
 class BOMComponent(BaseModel):
     """
-    A BOM component that represents a material or part used in manufacturing.
-    Each component must have a reference to a material and a quantity.
+    A BOM component that represents a product used in manufacturing.
+    Each component must have a reference to a product and a quantity.
     """
     bom = models.ForeignKey(BOM, on_delete=models.CASCADE, related_name='components')
     sequence_order = models.IntegerField()
@@ -238,10 +213,10 @@ class BOMComponent(BaseModel):
         blank=True,
         help_text="Expected lead time in days for this component"
     )
-    material = models.ForeignKey(
-        'inventory.RawMaterial',
+    product = models.ForeignKey(
+        'inventory.Product',
         on_delete=models.PROTECT,
-        help_text="Reference to the material used in this component"
+        help_text="Reference to the product used in this component"
     )
 
     class Meta:
@@ -271,7 +246,7 @@ class BOMComponent(BaseModel):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.material.material_code} x{self.quantity}"
+        return f"{self.product.product_code} x{self.quantity}"
 
 class WorkflowProcess(BaseModel):
     """
