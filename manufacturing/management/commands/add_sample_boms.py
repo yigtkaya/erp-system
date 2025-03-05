@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 from inventory.models import Product
-from manufacturing.models import BOM, ProcessComponent, BOMProcessConfig, ManufacturingProcess
+from manufacturing.models import BOM, BOMComponent, ManufacturingProcess, WorkflowProcess
 
 class Command(BaseCommand):
     help = 'Add a sample BOM and BOM components for a semi-finished product.'
@@ -37,31 +37,35 @@ class Command(BaseCommand):
             )
             return
 
-        # Create a BOM process configuration if needed
-        bom_process_config, created_config = BOMProcessConfig.objects.get_or_create(
+        # Create a workflow process if needed
+        workflow_process, created_workflow = WorkflowProcess.objects.get_or_create(
             process=process,
+            product=semi_product,
             defaults={
+                'process_number': f"{semi_product.product_code}-PR001",
+                'stock_code': f"{semi_product.product_code}-PR001",
                 'estimated_duration_minutes': 25,
-                'tooling_requirements': {"tools": ["Cutting Tool", "Measuring Tool"]},
-                'quality_checks': {"checks": ["Dimension Check", "Surface Finish Check"]},
+                'tooling_requirements': "Cutting Tool, Measuring Tool",
+                'quality_checks': "Dimension Check, Surface Finish Check",
+                'sequence_order': 1
             }
         )
-        if created_config:
-            self.stdout.write(self.style.SUCCESS(f"Created BOM Process Config for process: {process.process_code}"))
+        if created_workflow:
+            self.stdout.write(self.style.SUCCESS(f"Created Workflow Process for process: {process.process_code}"))
         else:
-            self.stdout.write(f"BOM Process Config already exists for process: {process.process_code}")
+            self.stdout.write(f"Workflow Process already exists for process: {process.process_code}")
 
-        # Create a process component for the BOM
-        process_component, created_comp = ProcessComponent.objects.get_or_create(
+        # Create a BOM component
+        component, created_comp = BOMComponent.objects.get_or_create(
             bom=bom,
-            process_config=bom_process_config,
+            material=workflow_process.raw_material,
             defaults={
                 'quantity': "100.00",
                 'sequence_order': 1,
-                'notes': "Sample process component"
+                'notes': "Sample component"
             }
         )
         if created_comp:
-            self.stdout.write(self.style.SUCCESS("Created process component for the BOM."))
+            self.stdout.write(self.style.SUCCESS("Created component for the BOM."))
         else:
-            self.stdout.write("Process component already exists for the BOM.") 
+            self.stdout.write("Component already exists for the BOM.") 

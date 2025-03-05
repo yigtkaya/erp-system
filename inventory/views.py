@@ -13,15 +13,13 @@ from rest_framework.filters import SearchFilter
 
 from .models import (
     InventoryCategory, UnitOfMeasure, Product,
-    TechnicalDrawing, RawMaterial, InventoryTransaction, UnitOfMeasure,
-    ProcessProduct
+    TechnicalDrawing, RawMaterial, InventoryTransaction, UnitOfMeasure
 )
 from .serializers import (
     InventoryCategorySerializer, UnitOfMeasureSerializer,
     ProductSerializer, TechnicalDrawingDetailSerializer,
     TechnicalDrawingListSerializer, RawMaterialSerializer, 
-    InventoryTransactionSerializer, UnitOfMeasureSerializer,
-    ProcessProductSerializer
+    InventoryTransactionSerializer, UnitOfMeasureSerializer
 )
 
 class UnitOfMeasureViewSet(viewsets.ReadOnlyModelViewSet):
@@ -509,34 +507,7 @@ class MaterialTypeChoicesAPIView(APIView):
 
     def get(self, request, *args, **kwargs):
         # Get the field choices from the RawMaterial model.
-        field = RawMaterial._meta.get_field('material_type')
-        choices = [{'value': value, 'display_name': display} for (value, display) in field.choices]
-        return Response(choices)
-
-class ProcessProductViewSet(viewsets.ModelViewSet):
-    queryset = ProcessProduct.objects.select_related(
-        'parent_product'
-    ).all()
-    serializer_class = ProcessProductSerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, SearchFilter]
-    filterset_fields = {
-        'parent_product': ['exact'],
-        'current_stock': ['exact', 'gt', 'lt', 'gte', 'lte']
-    }
-    search_fields = [
-        'product_code',
-        'description',
-        'parent_product__product_name',
-        'parent_product__product_code'
-    ]
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        return queryset
-
-    def perform_create(self, serializer):
-        serializer.save()
-
-    def perform_update(self, serializer):
-        serializer.save()
+        choices = RawMaterial._meta.get_field('material_type').choices
+        return Response({
+            'choices': [{'value': value, 'display': display} for value, display in choices]
+        })

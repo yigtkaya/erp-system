@@ -11,7 +11,6 @@ router.register(r'technical-drawings', views.TechnicalDrawingViewSet)
 router.register(r'transactions', views.InventoryTransactionViewSet)
 router.register(r'raw-materials', views.RawMaterialViewSet)
 router.register(r'units', views.UnitOfMeasureViewSet)
-router.register(r'process-products', views.ProcessProductViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),

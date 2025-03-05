@@ -88,53 +88,20 @@ class ManufacturingProcess(BaseModel):
 
     class Meta:
         indexes = [
+            models.Index(fields=['process_code']),
             models.Index(fields=['machine_type']),
         ]
 
     def __str__(self):
         return f"{self.process_code} - {self.process_name}"
 
-class BOMProcessConfig(models.Model):
-    process = models.ForeignKey(ManufacturingProcess, on_delete=models.PROTECT)
-    raw_material = models.ForeignKey('inventory.RawMaterial', on_delete=models.PROTECT, null=True, blank=True)
-    process_product = models.ForeignKey(
-        'inventory.ProcessProduct',
-        on_delete=models.PROTECT,
-        related_name='bom_process_configs',
-        null=True,
-        blank=True,
-        help_text="Process product associated with this configuration"
-    )
-    axis_count = models.CharField(
-        max_length=20,
-        choices=AxisCount.choices,
-        help_text="Required machine axis count for this process configuration",
-        blank=True,
-        null=True
-    )
-    estimated_duration_minutes = models.IntegerField(blank=True, null=True)
-    tooling_requirements = models.TextField(blank=True, null=True)
-    quality_checks = models.TextField(blank=True, null=True)
-
-    class Meta:
-        verbose_name = "BOM Process Configuration"
-        verbose_name_plural = "BOM Process Configurations"
-        indexes = [
-            models.Index(fields=['process']),
-            models.Index(fields=['axis_count']),
-        ]
-
-    def __str__(self):
-        axis_str = f" - {self.axis_count}" if self.axis_count else ""
-        return f"{self.process.process_code}{axis_str}"
-
 class BOM(BaseModel):
     """
     The BOM is associated with a product that is manufactured.
     
     • Standard products (bought externally) are not allowed a BOM.
-    • For Montaged products the BOM can only have ProductComponents (assembly of semis/standards).
-    • For Semi and Single products the BOM is based on a raw material process (ProcessComponents) and may include a product component if a purchased (Standard) part is used.
+    • For Montaged products the BOM can only have Product components.
+    • For Semi and Single products the BOM is based on a raw material process and may include a product component if a purchased (Standard) part is used.
     """
     product = models.ForeignKey(
         'inventory.Product',
@@ -179,11 +146,10 @@ class BOM(BaseModel):
             raise ValidationError("Standard products (bought externally) cannot have a BOM")
         
         # Validate components based on the parent product type
-        # Remove the self.pk check to ensure validation runs during creation as well
         if hasattr(self, 'components'):
-            # Use the InheritanceManager helper to separate component types
-            product_components = self.components.instance_of(ProductComponent)
-            process_components = self.components.instance_of(ProcessComponent)
+            # Get components by type
+            product_components = self.components.filter(component_type='PRODUCT')
+            process_components = self.components.filter(component_type='PROCESS')
             
             if self.product.product_type == ProductType.MONTAGED:
                 # Montaged BOMs may only contain product components.
@@ -243,24 +209,15 @@ class BOM(BaseModel):
         )
         
         # Copy all components
-        for component in self.components.all().select_subclasses():
-            if isinstance(component, ProductComponent):
-                ProductComponent.objects.create(
-                    bom=new_bom,
-                    sequence_order=component.sequence_order,
-                    quantity=component.quantity,
-                    notes=component.notes,
-                    product=component.product
-                )
-            elif isinstance(component, ProcessComponent):
-                ProcessComponent.objects.create(
-                    bom=new_bom,
-                    sequence_order=component.sequence_order,
-                    quantity=component.quantity,
-                    notes=component.notes,
-                    process_config=component.process_config,
-                    raw_material=component.raw_material
-                )
+        for component in self.components.all():
+            BOMComponent.objects.create(
+                bom=new_bom,
+                sequence_order=component.sequence_order,
+                quantity=component.quantity,
+                notes=component.notes,
+                lead_time_days=component.lead_time_days,
+                material=component.material
+            )
         
         return new_bom
     
@@ -269,51 +226,36 @@ class BOM(BaseModel):
 
 class BOMComponent(BaseModel):
     """
-    A generic BOM component that is extended by:
-      • ProductComponent – for including an existing product (assembly/sub-assembly)
-      • ProcessComponent – for specifying a manufacturing process step using raw materials.
+    A BOM component that represents a material or part used in manufacturing.
+    Each component must have a reference to a material and a quantity.
     """
-    COMPONENT_TYPES = [
-        ('PRODUCT', 'Product Component'),
-        ('PROCESS', 'Process Component'),
-    ]
-
     bom = models.ForeignKey(BOM, on_delete=models.CASCADE, related_name='components')
     sequence_order = models.IntegerField()
-    quantity = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1.0)
     notes = models.TextField(blank=True)
-    component_type = models.CharField(
-        max_length=20,
-        choices=COMPONENT_TYPES,
-        default='PRODUCT',
-        editable=False
-    )
-    is_critical = models.BooleanField(
-        default=False,
-        help_text="Indicates if this component is critical for the BOM"
-    )
     lead_time_days = models.IntegerField(
         null=True, 
         blank=True,
         help_text="Expected lead time in days for this component"
     )
-
-    objects = InheritanceManager()
+    material = models.ForeignKey(
+        'inventory.RawMaterial',
+        on_delete=models.PROTECT,
+        help_text="Reference to the material used in this component"
+    )
 
     class Meta:
         ordering = ['sequence_order']
         unique_together = [('bom', 'sequence_order')]
         indexes = [
             models.Index(fields=['bom']),
-            models.Index(fields=['component_type']),
-            models.Index(fields=['is_critical']),
+            models.Index(fields=['sequence_order'])
         ]
 
     def clean(self):
         super().clean()
         # Check for duplicate sequence_order within the same BOM
         if self.bom_id is not None and self.sequence_order is not None:
-            # Exclude self when checking for duplicates (important for updates)
             duplicate_exists = BOMComponent.objects.filter(
                 bom=self.bom,
                 sequence_order=self.sequence_order
@@ -325,89 +267,81 @@ class BOMComponent(BaseModel):
                 })
 
     def save(self, *args, **kwargs):
-        # Set component_type based on the actual class
-        if isinstance(self, ProductComponent):
-            self.component_type = 'PRODUCT'
-            # Ensure quantity is required for ProductComponent
-            if self.quantity is None:
-                raise ValidationError("Quantity is required for product components")
-        elif isinstance(self, ProcessComponent):
-            self.component_type = 'PROCESS'
-        self.clean()  # Run validation before saving
+        self.clean()
         super().save(*args, **kwargs)
 
     def __str__(self):
-        quantity_str = f" (x{self.quantity})" if self.quantity is not None else ""
-        return f"Component {self.sequence_order} of {self.bom}{quantity_str}"
+        return f"{self.material.material_code} x{self.quantity}"
 
-class ProductComponent(BOMComponent):
+class WorkflowProcess(BaseModel):
     """
-    This component indicates that the BOM uses another product.
-    
-    • For Montaged products, the referenced product must be either a Semi (sub–assembly)
-      or a Standard (purchased) part.
-    • For Semi and Single product BOMs, if a product component is used it must reference a Standard product.
+    Represents a manufacturing process step in the workflow.
+    Each process has a process number and stock code for tracking.
+    Some processes may not require machines (e.g., manual assembly, quality control).
     """
-    product = models.ForeignKey('inventory.Product', on_delete=models.PROTECT)
-
-    def clean(self):
-        super().clean()
-        if self.bom.product == self.product:
-            raise ValidationError("A product cannot be a component of itself")
-        
-        # Check for circular dependencies
-        self._check_circular_dependency(self.bom.product, [self.product])
-        
-        parent_type = self.bom.product.product_type
-        if parent_type == ProductType.MONTAGED:
-            if self.product.product_type not in [ProductType.SEMI, ProductType.STANDARD_PART]:
-                raise ValidationError("Montaged products can only contain Semi or Standard products as components")
-        elif parent_type in [ProductType.SEMI, ProductType.SINGLE]:
-            if self.product.product_type != ProductType.STANDARD_PART:
-                raise ValidationError("Semi and Single products can only include Standard parts as product components")
-
-    def _check_circular_dependency(self, parent_product, visited_products):
-        """
-        Recursively check for circular dependencies in the BOM structure.
-        
-        Args:
-            parent_product: The product to check components for
-            visited_products: List of products already visited in this branch
-        """
-        # Get all BOMs for the parent product
-        boms = BOM.objects.filter(product=parent_product, is_active=True)
-        
-        for bom in boms:
-            # Get all product components in this BOM
-            product_components = ProductComponent.objects.filter(bom=bom)
-            
-            for component in product_components:
-                if component.product in visited_products:
-                    raise ValidationError(f"Circular dependency detected: {component.product} is already used in the BOM hierarchy")
-                
-                # Only recurse for Semi products (Standard products don't have BOMs)
-                if component.product.product_type == ProductType.SEMI:
-                    self._check_circular_dependency(component.product, visited_products + [component.product])
-
-    def __str__(self):
-        return f"{self.product.product_code} (x{self.quantity})"
-
-class ProcessComponent(BOMComponent):
-    """
-    This component represents a manufacturing process step where raw materials are transformed.
-    
-    • Only Semi or Single products may include process components.
-    """
-    process_config = models.ForeignKey(BOMProcessConfig, on_delete=models.PROTECT)
+    product = models.ForeignKey(
+        'inventory.Product',
+        on_delete=models.PROTECT,
+        related_name='workflow_processes',
+        help_text="Product this workflow process belongs to"
+    )
+    process = models.ForeignKey(ManufacturingProcess, on_delete=models.PROTECT)
+    process_number = models.CharField(max_length=50, unique=True, help_text="Unique process number for tracking")
+    stock_code = models.CharField(max_length=50, help_text="Stock code for the process output")
     raw_material = models.ForeignKey('inventory.RawMaterial', on_delete=models.PROTECT, null=True, blank=True)
-    
+    axis_count = models.CharField(
+        max_length=20,
+        choices=AxisCount.choices,
+        help_text="Required machine axis count (only if process requires a machine)",
+        blank=True,
+        null=True
+    )
+    estimated_duration_minutes = models.IntegerField(blank=True, null=True)
+    tooling_requirements = models.TextField(blank=True, null=True)
+    quality_checks = models.TextField(blank=True, null=True)
+    sequence_order = models.IntegerField(
+        help_text="Order of this process in the product's workflow"
+    )
+
+    class Meta:
+        verbose_name = "Workflow Process"
+        verbose_name_plural = "Workflow Processes"
+        ordering = ['product', 'sequence_order']
+        unique_together = [('product', 'sequence_order')]
+        indexes = [
+            models.Index(fields=['product']),
+            models.Index(fields=['process_number']),
+            models.Index(fields=['stock_code']),
+        ]
+
     def clean(self):
         super().clean()
-        if self.bom.product.product_type not in [ProductType.SEMI, ProductType.SINGLE]:
-            raise ValidationError("Only Semi or Single products can have process components")
+        # Validate axis_count based on requires_machine
+        if self.requires_machine:
+            if not self.axis_count:
+                raise ValidationError("Axis count is required when process requires a machine")
+        else:
+            if self.axis_count:
+                raise ValidationError("Axis count should not be set for processes that don't require machines")
+
+        # Check for duplicate sequence_order within the same product
+        if self.product_id is not None and self.sequence_order is not None:
+            duplicate_exists = WorkflowProcess.objects.filter(
+                product=self.product,
+                sequence_order=self.sequence_order
+            ).exclude(pk=self.pk).exists()
+            
+            if duplicate_exists:
+                raise ValidationError({
+                    'sequence_order': f'A process with sequence order {self.sequence_order} already exists for this product.'
+                })
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.process_config.process.process_code} (x{self.quantity})"
+        return f"{self.product.product_code} - {self.process_number} - {self.process.process_name}"
 
 class WorkOrderStatusTransition:
     """
@@ -555,7 +489,7 @@ class WorkOrder(BaseModel):
             return  # Sub orders already exist
             
         # Get all components from the BOM
-        components = self.bom.components.all().select_subclasses()
+        components = self.bom.components.all()
         
         # Calculate dates based on lead times and dependencies
         for component in components:
@@ -574,15 +508,20 @@ class WorkOrder(BaseModel):
             )
             
             # For process components, create process steps
-            if isinstance(component, ProcessComponent):
-                # Create a process step for the process configuration
-                process_config = component.process_config
-                SubWorkOrderProcess.objects.create(
-                    sub_work_order=sub_order,
-                    process=process_config.process,
-                    sequence_order=1,
-                    planned_duration_minutes=process_config.estimated_duration_minutes
-                )
+            if component.material.product_type == ProductType.SEMI:
+                # Create a process step for the workflow process
+                workflow_process = WorkflowProcess.objects.filter(
+                    product=component.material,
+                    raw_material=component.material
+                ).first()
+                
+                if workflow_process:
+                    SubWorkOrderProcess.objects.create(
+                        sub_work_order=sub_order,
+                        workflow_process=workflow_process,
+                        sequence_order=1,
+                        planned_duration_minutes=workflow_process.estimated_duration_minutes
+                    )
 
     def __str__(self):
         return f"{self.order_number} - {self.bom.product.product_code}"
@@ -650,22 +589,22 @@ class SubWorkOrder(BaseModel):
 
     @property
     def component_type(self):
-        """Returns the specific type of BOM component (Process or Product)"""
-        return self.bom_component.get_real_instance_class().__name__
+        """Returns the type of BOM component"""
+        return self.bom_component.material.product_type
 
     @property
     def is_process_component(self):
         """Check if this sub work order is for a process component"""
-        return isinstance(self.bom_component.get_real_instance(), ProcessComponent)
+        return self.bom_component.material.product_type == ProductType.SEMI
 
     @property
     def is_product_component(self):
         """Check if this sub work order is for a product component"""
-        return isinstance(self.bom_component.get_real_instance(), ProductComponent)
+        return self.bom_component.material.product_type == ProductType.MONTAGED
 
     def get_specific_component(self):
-        """Get the actual ProcessComponent or ProductComponent instance"""
-        return self.bom_component.get_real_instance()
+        """Get the BOMComponent instance"""
+        return self.bom_component
         
     def update_status(self, new_status, user=None):
         """
@@ -712,34 +651,33 @@ class SubWorkOrder(BaseModel):
 
         # Validate target category based on component type
         if self.target_category:
-            specific_component = self.get_specific_component()
-            if isinstance(specific_component, ProcessComponent):
+            component = self.bom_component
+            if component.material.product_type == ProductType.SEMI:
                 # For Semi or Single products using process components the finished goods
                 # (raw processed items) should go to the 'PROSES' category.
-                if specific_component.bom.product.product_type in [ProductType.SEMI, ProductType.SINGLE]:
-                    if self.target_category.name != 'PROSES':
-                        raise ValidationError("Processed Semi/Single products must target Proses category")
-            elif isinstance(specific_component, ProductComponent):
+                if self.target_category.name != 'PROSES':
+                    raise ValidationError("Processed Semi/Single products must target Proses category")
+            elif component.material.product_type == ProductType.MONTAGED:
                 # For Montaged product BOMs the product components (usually Semi sub–assemblies)
                 # should target the 'MAMUL' category.
-                if specific_component.bom.product.product_type == ProductType.MONTAGED:
-                    if self.target_category.name != 'MAMUL':
-                        raise ValidationError("Montaged product components must target Mamul category")
+                if self.target_category.name != 'MAMUL':
+                    raise ValidationError("Montaged product components must target Mamul category")
 
     def save(self, *args, **kwargs):
         self.clean()
         super().save(*args, **kwargs)
 
     def __str__(self):
-        component = self.get_specific_component()
-        if isinstance(component, ProcessComponent):
-            return f"{self.parent_work_order.order_number} - Process: {component.process_config.process.process_code}"
+        component = self.bom_component
+        if component.material.product_type == ProductType.SEMI:
+            return f"{self.parent_work_order.order_number} - Process: {component.material.material_code if component.material else 'No Material'}"
         else:
-            return f"{self.parent_work_order.order_number} - Product: {component.product.product_code}"
+            return f"{self.parent_work_order.order_number} - Product: {component.material.product_code if component.material else 'No Product'}"
 
 class SubWorkOrderProcess(models.Model):
     """
-    For sub work orders based on a process component, you can track the individual process steps.
+    For sub work orders, you can track the individual process steps.
+    Each process has a unique process number and stock code.
     """
     PROCESS_STATUS_CHOICES = [
         ('PENDING', 'Pending'),
@@ -751,7 +689,7 @@ class SubWorkOrderProcess(models.Model):
     ]
     
     sub_work_order = models.ForeignKey(SubWorkOrder, on_delete=models.CASCADE, related_name='processes')
-    process = models.ForeignKey(ManufacturingProcess, on_delete=models.PROTECT)
+    workflow_process = models.ForeignKey(WorkflowProcess, on_delete=models.PROTECT, null=True)
     machine = models.ForeignKey(Machine, on_delete=models.PROTECT, null=True, blank=True)
     sequence_order = models.IntegerField()
     planned_duration_minutes = models.IntegerField(null=True, blank=True)
@@ -767,30 +705,24 @@ class SubWorkOrderProcess(models.Model):
         ordering = ['sequence_order']
         indexes = [
             models.Index(fields=['sub_work_order']),
+            models.Index(fields=['workflow_process']),
             models.Index(fields=['machine']),
             models.Index(fields=['status']),
+            models.Index(fields=['start_time']),
+            models.Index(fields=['end_time']),
         ]
 
     def clean(self):
         super().clean()
-        # Ensure the sub work order is for a process component
-        if not self.sub_work_order.is_process_component:
-            raise ValidationError("Can only add processes to sub work orders with process components")
-        
-        process_component = self.sub_work_order.get_specific_component()
-        
-        # Validate machine requirements against the process configuration.
-        if self.machine:
-            if process_component.process_config.axis_count and self.machine.axis_count != process_component.process_config.axis_count:
+        # Validate machine requirements against the workflow process
+        if self.machine and self.workflow_process:
+            if self.workflow_process.axis_count and self.machine.axis_count != self.workflow_process.axis_count:
                 raise ValidationError("Machine axis count does not match process requirements")
-            if self.machine.machine_type != process_component.process_config.process.machine_type:
+            if self.machine.machine_type != self.workflow_process.process.machine_type:
                 raise ValidationError("Machine type does not match process requirements")
             if self.machine.status != MachineStatus.AVAILABLE:
                 raise ValidationError("Selected machine is not available")
                 
-        if self.process != process_component.process_config.process:
-            raise ValidationError("Process must match the one specified in the BOM process configuration")
-            
         # Validate time tracking
         if self.end_time and self.start_time and self.end_time < self.start_time:
             raise ValidationError("End time cannot be before start time")
@@ -837,38 +769,27 @@ class SubWorkOrderProcess(models.Model):
         self._update_sub_work_order_completion()
         
         return True
-        
+
     def _update_sub_work_order_completion(self):
-        """Update the completion percentage of the parent sub work order"""
-        sub_order = self.sub_work_order
-        processes = SubWorkOrderProcess.objects.filter(sub_work_order=sub_order)
-        
-        if not processes.exists():
-            return
-            
-        completed = processes.filter(status='COMPLETED').count()
-        total = processes.count()
-        
-        if total > 0:
-            sub_order.completion_percentage = (completed / total) * 100
-            sub_order.save(update_fields=['completion_percentage'])
-            
-            # If all processes are complete, mark the sub work order as complete
-            if completed == total:
-                try:
-                    sub_order.update_status(WorkOrderStatus.COMPLETED)
-                except ValidationError:
-                    pass
+        """
+        Update the completion percentage of the parent sub work order
+        based on completed processes.
+        """
+        total_processes = self.sub_work_order.processes.count()
+        if total_processes > 0:
+            completed_processes = self.sub_work_order.processes.filter(
+                status='COMPLETED'
+            ).count()
+            completion = (completed_processes / total_processes) * 100
+            self.sub_work_order.completion_percentage = completion
+            self.sub_work_order.save(update_fields=['completion_percentage'])
 
     def save(self, *args, **kwargs):
-        self.clean()
+        self.full_clean()
         super().save(*args, **kwargs)
-        
-        # Update sub work order completion after save
-        self._update_sub_work_order_completion()
 
     def __str__(self):
-        return f"{self.sub_work_order} - {self.process.process_code} ({self.get_status_display()})"
+        return f"Process {self.sequence_order} for {self.sub_work_order}"
 
 class WorkOrderOutput(BaseModel):
     """
@@ -902,37 +823,38 @@ class WorkOrderOutput(BaseModel):
 
     def clean(self):
         super().clean()
-        component = self.sub_work_order.get_specific_component()
         
-        # Validate target category based on output status and component type
-        if self.status == 'GOOD':
-            if isinstance(component, ProcessComponent):
-                if component.bom.product.product_type in [ProductType.SEMI, ProductType.SINGLE]:
-                    if self.target_category.name != 'PROSES':
-                        raise ValidationError("Good quality processed Semi/Single products must go to Proses category")
-            elif isinstance(component, ProductComponent):
-                if component.bom.product.product_type == ProductType.MONTAGED:
-                    if self.target_category.name != 'MAMUL':
-                        raise ValidationError("Good quality Montaged products must go to Mamul category")
-        elif self.status == 'REWORK':
-            if self.target_category.name != 'KARANTINA':
-                raise ValidationError("Items needing rework must go to Karantina")
-        elif self.status == 'SCRAP':
-            if self.target_category.name != 'HURDA':
-                raise ValidationError("Scrap items must go to Hurda")
-        elif self.status == 'QUARANTINE':
-            if self.target_category.name != 'KARANTINA':
-                raise ValidationError("Quarantined items must go to Karantina category")
-            if not self.quarantine_reason:
-                raise ValidationError("Quarantine reason is required for items in quarantine status")
-            self.inspection_required = True
-
-        # Check that total output doesn't exceed work order quantity
-        total_output = WorkOrderOutput.objects.filter(sub_work_order=self.sub_work_order).exclude(pk=self.pk).aggregate(
-            total=models.Sum('quantity'))['total'] or 0
+        # Validate total output doesn't exceed work order quantity
+        total_output = WorkOrderOutput.objects.filter(
+            sub_work_order=self.sub_work_order
+        ).exclude(
+            pk=self.pk
+        ).aggregate(
+            total=models.Sum('quantity')
+        )['total'] or 0
         
         if total_output + self.quantity > self.sub_work_order.quantity:
-            raise ValidationError("Total output quantity cannot exceed work order quantity")
+            raise ValidationError(
+                f"Total output quantity ({total_output + self.quantity}) cannot exceed work order quantity ({self.sub_work_order.quantity})"
+            )
+        
+        # Validate quarantine reason is provided when status is QUARANTINE
+        if self.status == 'QUARANTINE' and not self.quarantine_reason:
+            raise ValidationError("Quarantine reason is required for items in quarantine status")
+        
+        # Set inspection required based on status
+        self.inspection_required = self.status in ['REWORK', 'QUARANTINE']
+        
+        # Validate target category based on status
+        if self.status == 'GOOD':
+            # Target category validation will be handled in the model's clean method
+            pass
+        elif self.status == 'REWORK' and self.target_category.name != 'KARANTINA':
+            raise ValidationError("Items needing rework must go to Karantina")
+        elif self.status == 'SCRAP' and self.target_category.name != 'HURDA':
+            raise ValidationError("Scrap items must go to Hurda")
+        elif self.status == 'QUARANTINE' and self.target_category.name != 'KARANTINA':
+            raise ValidationError("Quarantined items must go to Karantina category")
 
     def save(self, *args, **kwargs):
         self.clean()

@@ -1,8 +1,7 @@
 from django.contrib import admin
 from .models import (
     WorkOrder, Machine, BOM, BOMComponent, ManufacturingProcess, 
-    SubWorkOrder, WorkOrderOutput, BOMProcessConfig, SubWorkOrderProcess,
-    ProductComponent, ProcessComponent
+    SubWorkOrder, WorkOrderOutput, SubWorkOrderProcess, WorkflowProcess
 )
 
 @admin.register(WorkOrder)
@@ -33,56 +32,48 @@ class BOMAdmin(admin.ModelAdmin):
 
 @admin.register(BOMComponent)
 class BOMComponentAdmin(admin.ModelAdmin):
-    list_display = ('bom', 'sequence_order', 'quantity')
+    list_display = ('bom', 'material', 'quantity', 'sequence_order')
     list_filter = ('bom__product__product_type',)
-    search_fields = ('bom__product__product_name',)
-    ordering = ('bom', 'sequence_order')
-
-@admin.register(ProductComponent)
-class ProductComponentAdmin(admin.ModelAdmin):
-    list_display = ('bom', 'product', 'sequence_order', 'quantity', 'created_by', 'modified_by')
-    list_filter = ('bom__product__product_type', 'product__product_type', 'created_by', 'modified_by')
-    search_fields = ('bom__product__product_name', 'product__product_name')
-    ordering = ('bom', 'sequence_order')
-    readonly_fields = ('created_by', 'modified_by', 'created_at', 'modified_at')
+    search_fields = ('material__material_code', 'material__name', 'notes')
+    raw_id_fields = ('bom', 'material')
     fieldsets = (
-        ('Basic Information', {
-            'fields': ('bom', 'product', 'sequence_order', 'quantity')
+        (None, {
+            'fields': ('bom', 'sequence_order', 'quantity', 'material')
         }),
         ('Additional Information', {
-            'fields': ('notes',),
+            'fields': ('lead_time_days', 'notes'),
             'classes': ('collapse',)
         }),
-        ('Audit Information', {
-            'fields': ('created_by', 'modified_by', 'created_at', 'modified_at'),
-            'classes': ('collapse',)
-        })
     )
 
-@admin.register(ProcessComponent)
-class ProcessComponentAdmin(admin.ModelAdmin):
-    list_display = ('bom', 'process_config', 'raw_material', 'sequence_order', 'get_quantity', 'created_by', 'modified_by')
-    list_filter = ('process_config__process__machine_type', 'created_by', 'modified_by')
-    search_fields = ('bom__product__product_name', 'process_config__process__process_name')
-    ordering = ('bom', 'sequence_order')
-    readonly_fields = ('created_by', 'modified_by', 'created_at', 'modified_at')
+@admin.register(WorkflowProcess)
+class WorkflowProcessAdmin(admin.ModelAdmin):
+    list_display = ('process_number', 'product', 'process', 'stock_code', 'sequence_order')
+    list_filter = (
+        'process__machine_type',
+        'axis_count',
+        'product__product_type'
+    )
+    search_fields = (
+        'process_number',
+        'stock_code',
+        'product__product_name',
+        'process__process_name'
+    )
+    ordering = ('product', 'sequence_order')
     fieldsets = (
         ('Basic Information', {
-            'fields': ('bom', 'process_config', 'sequence_order')
+            'fields': ('product', 'process', 'process_number', 'stock_code', 'sequence_order')
         }),
-        ('Optional Information', {
-            'fields': ('quantity', 'raw_material', 'notes'),
+        ('Machine Requirements', {
+            'fields': ('axis_count',),
             'classes': ('collapse',)
         }),
-        ('Audit Information', {
-            'fields': ('created_by', 'modified_by', 'created_at', 'modified_at'),
+        ('Process Details', {
+            'fields': ('raw_material', 'estimated_duration_minutes', 'tooling_requirements', 'quality_checks'),
             'classes': ('collapse',)
         })
     )
-
-    def get_quantity(self, obj):
-        return obj.quantity if obj.quantity is not None else 'Not specified'
-    get_quantity.short_description = 'Quantity'
 
 @admin.register(ManufacturingProcess)
 class ManufacturingProcessAdmin(admin.ModelAdmin):
@@ -111,65 +102,38 @@ class WorkOrderOutputAdmin(admin.ModelAdmin):
         }),
         ('Quality Control', {
             'fields': ('inspection_required', 'quarantine_reason'),
-            'classes': ('collapse',),
-            'description': 'Quality control and quarantine information'
+            'classes': ('collapse',)
         }),
-        ('Notes', {
-            'fields': ('notes',),
+        ('Additional Information', {
+            'fields': ('notes', 'production_date'),
             'classes': ('collapse',)
         })
     )
 
-@admin.register(BOMProcessConfig)
-class BOMProcessConfigAdmin(admin.ModelAdmin):
-    list_display = ('process', 'raw_material', 'get_axis_count', 'get_duration', 'get_process_products')
-    list_filter = (
-        'process__machine_type',
-        'raw_material',
-        'process_product__parent_product'
-    )
-    search_fields = (
-        'process__process_name',
-        'process__process_code',
-        'raw_material__material_code',
-        'process_product__product_code',
-        'process_product__description'
-    )
-    fieldsets = (
-        ('Process Information', {
-            'fields': ('process', 'raw_material')
-        }),
-        ('Products', {
-            'fields': ('process_product',),
-            'description': 'Select the process products associated with this configuration'
-        }),
-        ('Configuration', {
-            'fields': ('axis_count', 'estimated_duration_minutes'),
-            'classes': ('collapse',),
-            'description': 'Optional configuration settings for the process'
-        }),
-        ('Requirements', {
-            'fields': ('tooling_requirements', 'quality_checks'),
-            'classes': ('collapse',),
-            'description': 'Optional tooling and quality requirements'
-        })
-    )
-
-    def get_axis_count(self, obj):
-        return obj.axis_count if obj.axis_count else 'Not specified'
-    get_axis_count.short_description = 'Axis Count'
-
-    def get_duration(self, obj):
-        return f"{obj.estimated_duration_minutes} minutes" if obj.estimated_duration_minutes else 'Not specified'
-    get_duration.short_description = 'Estimated Duration'
-
-    def get_process_products(self, obj):
-        return ", ".join([pp.product_code for pp in obj.process_product.all()]) or "No products"
-    get_process_products.short_description = 'Process Products'
-
 @admin.register(SubWorkOrderProcess)
 class SubWorkOrderProcessAdmin(admin.ModelAdmin):
-    list_display = ('sub_work_order', 'process', 'machine', 'sequence_order', 'planned_duration_minutes')
-    list_filter = ('machine__machine_type',)
-    search_fields = ('sub_work_order__parent_work_order__order_number', 'process__process_name')
+    list_display = ('sub_work_order', 'workflow_process', 'machine', 'status', 'sequence_order')
+    list_filter = ('status', 'machine__machine_type')
+    search_fields = (
+        'sub_work_order__parent_work_order__order_number',
+        'workflow_process__process_number',
+        'workflow_process__process__process_name'
+    )
     ordering = ('sequence_order',)
+    fieldsets = (
+        ('Basic Information', {
+            'fields': ('sub_work_order', 'workflow_process', 'sequence_order')
+        }),
+        ('Machine Assignment', {
+            'fields': ('machine', 'operator'),
+            'classes': ('collapse',)
+        }),
+        ('Time Tracking', {
+            'fields': ('planned_duration_minutes', 'actual_duration_minutes', 'setup_time_minutes'),
+            'classes': ('collapse',)
+        }),
+        ('Status', {
+            'fields': ('status', 'start_time', 'end_time', 'notes'),
+            'classes': ('collapse',)
+        })
+    )

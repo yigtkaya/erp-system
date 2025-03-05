@@ -13,20 +13,19 @@ from rest_framework.exceptions import ValidationError
 from .models import (
     WorkOrder, BOM, Machine, ManufacturingProcess,
     SubWorkOrder, BOMComponent, WorkOrderOutput,
-    ProcessComponent, ProductComponent, SubWorkOrderProcess,
-    BOMProcessConfig, WorkOrderStatusChange, WorkOrderStatusTransition
+    SubWorkOrderProcess, WorkOrderStatusChange,
+    WorkflowProcess, WorkOrderStatusTransition
 )
 from .serializers import (
     WorkOrderSerializer, BOMSerializer, MachineSerializer,
     ManufacturingProcessSerializer, SubWorkOrderSerializer,
     BOMComponentSerializer, WorkOrderOutputSerializer,
-    ProcessComponentSerializer, ProductComponentSerializer,
-    SubWorkOrderProcessSerializer, BOMProcessConfigSerializer,
-    WorkOrderCreateUpdateSerializer, BOMCreateUpdateSerializer,
-    BOMWithComponentsSerializer, ProcessComponentCreateUpdateSerializer,
-    ProductComponentCreateUpdateSerializer, SubWorkOrderCreateUpdateSerializer,
-    SubWorkOrderProcessCreateUpdateSerializer, WorkOrderOutputCreateUpdateSerializer,
-    BOMComponentCreateSerializer, WorkOrderStatusChangeSerializer
+    SubWorkOrderProcessSerializer, WorkOrderCreateUpdateSerializer,
+    BOMCreateUpdateSerializer, BOMWithComponentsSerializer,
+    SubWorkOrderCreateUpdateSerializer, SubWorkOrderProcessCreateUpdateSerializer,
+    WorkOrderOutputCreateUpdateSerializer, BOMComponentCreateUpdateSerializer,
+    WorkOrderStatusChangeSerializer, WorkflowProcessSerializer,
+    WorkflowProcessCreateUpdateSerializer
 )
 
 class WorkOrderViewSet(viewsets.ModelViewSet):
@@ -147,21 +146,22 @@ class BOMViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, SearchFilter]
     filterset_fields = ['product', 'version', 'is_active', 'is_approved']
     search_fields = ['product__product_code', 'notes']
-
+    
     def get_queryset(self):
-        return BOM.objects.filter(is_active=True).select_related(
-            'product', 'approved_by', 'parent_bom'
+        return BOM.objects.select_related(
+            'product',
+            'approved_by'
         ).prefetch_related(
-            'components__processcomponent__process_config__process',
-            'components__processcomponent__raw_material',
-            'components__productcomponent__product'
-        )
+            'components',
+            'components__product',
+            'components__raw_material'
+        ).all()
     
     def get_serializer_class(self):
-        if self.action == 'create_with_components':
-            return BOMWithComponentsSerializer
-        elif self.action in ['create', 'update', 'partial_update']:
+        if self.action in ['create', 'update', 'partial_update']:
             return BOMCreateUpdateSerializer
+        elif self.action == 'create_with_components':
+            return BOMWithComponentsSerializer
         return BOMSerializer
 
     def perform_destroy(self, instance):
@@ -265,19 +265,19 @@ class MachineViewSet(viewsets.ModelViewSet):
 
 class BOMComponentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
-
+    filter_backends = [DjangoFilterBackend, SearchFilter]
+    filterset_fields = ['bom']
+    search_fields = ['material__material_code', 'material__name', 'notes']
+    
     def get_queryset(self):
-        bom_id = self.kwargs.get('bom_pk')
-        return BOMComponent.objects.filter(bom__id=bom_id).select_related(
+        return BOMComponent.objects.select_related(
             'bom',
-            'processcomponent__process_config__process',
-            'processcomponent__raw_material',
-            'productcomponent__product'
-        )
+            'material'
+        ).all()
     
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
-            return BOMComponentCreateSerializer
+            return BOMComponentCreateUpdateSerializer
         return BOMComponentSerializer
     
     def handle_exception(self, exc):
@@ -288,54 +288,36 @@ class BOMComponentViewSet(viewsets.ModelViewSet):
             )
         return super().handle_exception(exc)
 
-class ProcessComponentViewSet(viewsets.ModelViewSet):
+class WorkflowProcessViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['bom']
-    
-    def get_queryset(self):
-        return ProcessComponent.objects.select_related(
-            'bom', 'bom__product',
-            'process_config', 'process_config__process',
-            'raw_material'
-        )
-    
-    def get_serializer_class(self):
-        if self.action in ['create', 'update', 'partial_update']:
-            return ProcessComponentCreateUpdateSerializer
-        return ProcessComponentSerializer
-    
-    def handle_exception(self, exc):
-        if isinstance(exc, ValidationError):
-            return Response(
-                {'error': str(exc)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        return super().handle_exception(exc)
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = {
+        'product': ['exact'],
+        'requires_machine': ['exact'],
+        'axis_count': ['exact', 'isnull'],
+        'raw_material': ['exact', 'isnull']
+    }
+    search_fields = ['process_number', 'stock_code', 'tooling_requirements', 'quality_checks']
+    ordering_fields = ['sequence_order', 'created_at']
+    ordering = ['product', 'sequence_order']
 
-class ProductComponentViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['bom']
-    
     def get_queryset(self):
-        return ProductComponent.objects.select_related(
-            'bom', 'bom__product',
-            'product'
-        )
-    
+        return WorkflowProcess.objects.select_related(
+            'product',
+            'process',
+            'raw_material'
+        ).all()
+
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
-            return ProductComponentCreateUpdateSerializer
-        return ProductComponentSerializer
-    
-    def handle_exception(self, exc):
-        if isinstance(exc, ValidationError):
-            return Response(
-                {'error': str(exc)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        return super().handle_exception(exc)
+            return WorkflowProcessCreateUpdateSerializer
+        return WorkflowProcessSerializer
+
+    def perform_create(self, serializer):
+        serializer.save()
+
+    def perform_update(self, serializer):
+        serializer.save()
 
 class ManufacturingProcessViewSet(viewsets.ModelViewSet):
     queryset = ManufacturingProcess.objects.all()
@@ -345,49 +327,6 @@ class ManufacturingProcessViewSet(viewsets.ModelViewSet):
     filterset_fields = ['machine_type']
     search_fields = ['process_code', 'process_name']
     
-    def handle_exception(self, exc):
-        if isinstance(exc, ValidationError):
-            return Response(
-                {'error': str(exc)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        return super().handle_exception(exc)
-
-class BOMProcessConfigViewSet(viewsets.ModelViewSet):
-    queryset = BOMProcessConfig.objects.select_related(
-        'process',
-        'raw_material'
-    ).prefetch_related(
-        'process_product',
-        'process_product__parent_product'
-    ).all()
-    serializer_class = BOMProcessConfigSerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, SearchFilter]
-    filterset_fields = {
-        'process__machine_type': ['exact'],
-        'axis_count': ['exact', 'isnull'],
-        'process_product__parent_product': ['exact'],
-        'raw_material': ['exact', 'isnull']
-    }
-    search_fields = [
-        'process__process_name',
-        'process__process_code',
-        'raw_material__material_code',
-        'process_product__product_code',
-        'process_product__description'
-    ]
-
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        return queryset
-
-    def perform_create(self, serializer):
-        serializer.save()
-
-    def perform_update(self, serializer):
-        serializer.save()
-
     def handle_exception(self, exc):
         if isinstance(exc, ValidationError):
             return Response(
@@ -413,10 +352,7 @@ class SubWorkOrderViewSet(viewsets.ModelViewSet):
         ).prefetch_related(
             'processes',
             'outputs'
-        ).select_subclasses(
-            'bom_component__processcomponent',
-            'bom_component__productcomponent'
-        )
+        ).all()
 
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
@@ -570,10 +506,8 @@ class WorkOrderOutputViewSet(viewsets.ModelViewSet):
         from inventory.models import InventoryCategory
         try:
             if new_status == 'GOOD':
-                component = output.sub_work_order.get_specific_component()
-                if isinstance(component, ProcessComponent):
-                    if component.bom.product.product_type in [ProductType.SEMI, ProductType.SINGLE]:
-                        target_category = InventoryCategory.objects.get(name='PROSES')
+                if self.bom_component.material.product_type in [ProductType.SEMI, ProductType.SINGLE]:
+                    target_category = InventoryCategory.objects.get(name='PROSES')
                 else:
                     target_category = InventoryCategory.objects.get(name='MAMUL')
             elif new_status == 'REWORK':

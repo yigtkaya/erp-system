@@ -1,8 +1,7 @@
 from rest_framework import serializers
 from .models import (
     InventoryCategory, UnitOfMeasure, Product,
-    TechnicalDrawing, RawMaterial, InventoryTransaction,
-    ProcessProduct
+    TechnicalDrawing, RawMaterial, InventoryTransaction
 )
 from erp_core.serializers import UserSerializer, CustomerSerializer
 from django.core.exceptions import ObjectDoesNotExist
@@ -119,27 +118,4 @@ class InventoryTransactionSerializer(serializers.ModelSerializer):
         elif product_type == 'SEMI':
             return ['PROSES', 'MAMUL', 'KARANTINA', 'HURDA']
         else:  # MONTAGED
-            return ['MAMUL', 'KARANTINA', 'HURDA']
-
-class ProcessProductSerializer(serializers.ModelSerializer):
-    parent_product_details = ProductSerializer(source='parent_product', read_only=True)
-
-    class Meta:
-        model = ProcessProduct
-        fields = [
-            'id', 'product_code', 'description', 'current_stock',
-            'parent_product', 'parent_product_details'
-        ]
-        extra_kwargs = {
-            'description': {'required': False},
-            'current_stock': {'required': False}
-        }
-
-    def validate(self, data):
-        if 'parent_product' in data:
-            parent_product = data['parent_product']
-            if parent_product.product_type not in ['SEMI', 'SINGLE']:
-                raise serializers.ValidationError(
-                    "Parent product must be of type SEMI or SINGLE"
-                )
-        return data 
+            return ['MAMUL', 'KARANTINA', 'HURDA'] 

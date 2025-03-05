@@ -1,14 +1,13 @@
 [
   {
-    "model": "manufacturing.processcomponent",
+    "model": "manufacturing.bomcomponent",
     "pk": 1,
     "fields": {
       "bom": 1,
       "quantity": "100.00",
       "sequence_order": 1,
-      "notes": "Sample process component",
-      "process_config": 1,
-      "raw_material": null
+      "notes": "Sample component",
+      "material": 1
     }
   }
 ]

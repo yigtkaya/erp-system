@@ -1,9 +1,8 @@
 from rest_framework import serializers
 from .models import (
     WorkOrder, BOM, Machine, ManufacturingProcess,
-    SubWorkOrder, BOMComponent, WorkOrderOutput, BOMProcessConfig,
-    ProcessComponent, ProductComponent, SubWorkOrderProcess,
-    WorkOrderStatusChange
+    SubWorkOrder, BOMComponent, WorkOrderOutput,
+    SubWorkOrderProcess, WorkOrderStatusChange, WorkflowProcess
 )
 from inventory.serializers import InventoryCategorySerializer, ProductSerializer, RawMaterialSerializer
 from django.db import transaction
@@ -32,238 +31,108 @@ class ManufacturingProcessSerializer(serializers.ModelSerializer):
             'approved_by', 'created_at', 'modified_at'
         ]
 
-class BOMProcessConfigSerializer(serializers.ModelSerializer):
-    process_name = serializers.CharField(source='process.process_name', read_only=True)
-    process_code = serializers.CharField(source='process.process_code', read_only=True)
-    machine_type = serializers.CharField(source='process.machine_type', read_only=True)
+class WorkflowProcessSerializer(serializers.ModelSerializer):
+    process_details = ManufacturingProcessSerializer(source='process', read_only=True)
     raw_material_details = RawMaterialSerializer(source='raw_material', read_only=True)
-    process_product_details = serializers.SerializerMethodField()
+    product_details = ProductSerializer(source='product', read_only=True)
 
     class Meta:
-        model = BOMProcessConfig
+        model = WorkflowProcess
         fields = [
-            'id', 'process', 'process_name', 'process_code',
-            'machine_type', 'axis_count', 'estimated_duration_minutes',
-            'tooling_requirements', 'quality_checks', 'raw_material_details',
-            'process_product', 'process_product_details'
+            'id', 'product', 'product_details',
+            'process', 'process_details',
+            'process_number', 'stock_code',
+            'raw_material', 'raw_material_details',
+            'requires_machine', 'axis_count',
+            'estimated_duration_minutes',
+            'tooling_requirements', 'quality_checks',
+            'sequence_order', 'created_at', 'modified_at'
         ]
-        extra_kwargs = {
-            'axis_count': {'required': False},
-            'estimated_duration_minutes': {'required': False},
-            'tooling_requirements': {'required': False},
-            'quality_checks': {'required': False},
-            'process_product': {'required': False}
-        }
 
-    def get_process_product_details(self, obj):
-        if obj.process_product:
-            return {
-                'id': obj.process_product.id,
-                'product_code': obj.process_product.product_code,
-                'description': obj.process_product.description,
-                'parent_product_code': obj.process_product.parent_product.product_code,
-                'parent_product_name': obj.process_product.parent_product.product_name,
-                'current_stock': obj.process_product.current_stock
-            }
-        return None
-
-    def validate_estimated_duration_minutes(self, value):
-        if value is not None and value <= 0:
-            raise serializers.ValidationError("Estimated duration must be a positive number")
-        return value
-
-class ProcessComponentSerializer(serializers.ModelSerializer):
-    process_config = BOMProcessConfigSerializer(read_only=True)
-
+class WorkflowProcessCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
-        model = ProcessComponent
+        model = WorkflowProcess
         fields = [
-            'id', 'bom', 'sequence_order', 'quantity',
-            'notes', 'process_config'
+            'id', 'product', 'process',
+            'process_number', 'stock_code',
+            'raw_material', 'requires_machine',
+            'axis_count', 'estimated_duration_minutes',
+            'tooling_requirements', 'quality_checks',
+            'sequence_order'
         ]
-        extra_kwargs = {
-            'quantity': {'required': False}
-        }
-
-class ProcessComponentCreateUpdateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ProcessComponent
-        fields = [
-            'id', 'bom', 'sequence_order', 'quantity',
-            'notes', 'process_config', 'raw_material'
-        ]
-        extra_kwargs = {
-            'quantity': {'required': False}
-        }
 
     def validate(self, data):
-        # Validate that the BOM product is of type SEMI or SINGLE
-        if 'bom' in data:
-            bom = data['bom']
-            if bom.product.product_type not in ['SEMI', 'SINGLE']:
-                raise serializers.ValidationError("Process components can only be added to BOMs for Semi or Single products")
-        return data
-
-class ProductComponentSerializer(serializers.ModelSerializer):
-    product = ProductSerializer(read_only=True)
-    active_bom_id = serializers.SerializerMethodField()
-
-    class Meta:
-        model = ProductComponent
-        fields = [
-            'id', 'bom', 'sequence_order', 'quantity',
-            'notes', 'product', 'active_bom_id'
-        ]
-        extra_kwargs = {
-            'quantity': {'required': True}
-        }
-    
-    def get_active_bom_id(self, obj):
-        """
-        Return the ID of the active BOM for this product if it exists and is a SEMI product.
-        This avoids redundant nesting of BOMs in the response.
-        """
-        if obj.product.product_type == 'SEMI':
-            active_bom = BOM.objects.filter(
-                product=obj.product,
-                is_active=True
-            ).order_by('-modified_at').first()
-            
-            if active_bom:
-                return active_bom.id
-        return None
-
-class ProductComponentCreateUpdateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ProductComponent
-        fields = [
-            'id', 'bom', 'sequence_order', 'quantity',
-            'notes', 'product'
-        ]
-        extra_kwargs = {
-            'quantity': {'required': True}
-        }
-
-    def validate(self, data):
-        if 'bom' in data and 'product' in data:
-            bom = data['bom']
-            product = data['product']
-            
-            # Check for self-reference
-            if bom.product == product:
-                raise serializers.ValidationError("A product cannot be a component of itself")
-            
-            # Validate based on parent product type
-            parent_type = bom.product.product_type
-            if parent_type == 'MONTAGED':
-                if product.product_type not in ['SEMI', 'STANDARD_PART']:
-                    raise serializers.ValidationError("Montaged products can only contain Semi or Standard products as components")
-            elif parent_type in ['SEMI', 'SINGLE']:
-                if product.product_type != 'STANDARD_PART':
-                    raise serializers.ValidationError("Semi and Single products can only include Standard parts as product components")
+        # Validate axis_count based on requires_machine
+        requires_machine = data.get('requires_machine', False)
+        axis_count = data.get('axis_count')
         
-        if 'quantity' not in data or data['quantity'] is None:
-            raise serializers.ValidationError({"quantity": "Quantity is required for product components"})
-            
+        if requires_machine and not axis_count:
+            raise serializers.ValidationError(
+                "Axis count is required when process requires a machine"
+            )
+        if not requires_machine and axis_count:
+            raise serializers.ValidationError(
+                "Axis count should not be set for processes that don't require machines"
+            )
+
+        # Validate sequence_order uniqueness
+        product = data.get('product')
+        sequence_order = data.get('sequence_order')
+        
+        if product and sequence_order:
+            exists = WorkflowProcess.objects.filter(
+                product=product,
+                sequence_order=sequence_order
+            )
+            if self.instance:
+                exists = exists.exclude(pk=self.instance.pk)
+            if exists.exists():
+                raise serializers.ValidationError(
+                    "A process with this sequence order already exists for this product"
+                )
+        
         return data
 
 class BOMComponentSerializer(serializers.ModelSerializer):
-    process_component = ProcessComponentSerializer(source='processcomponent', read_only=True)
-    product_component = ProductComponentSerializer(source='productcomponent', read_only=True)
-    component_type = serializers.CharField(source='get_component_type_display', read_only=True)
+    material_code = serializers.CharField(source='material.material_code', read_only=True)
+    material_name = serializers.CharField(source='material.name', read_only=True)
 
     class Meta:
         model = BOMComponent
         fields = [
-            'id', 'bom', 'sequence_order', 'quantity',
-            'notes', 'component_type', 'process_component', 
-            'product_component'
+            'id', 'bom', 'sequence_order', 'quantity', 
+            'material', 'material_code', 'material_name',
+            'lead_time_days', 'notes'
+        ]
+        read_only_fields = ['id']
+
+class BOMComponentCreateUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BOMComponent
+        fields = [
+            'bom', 'sequence_order', 'quantity',
+            'material', 'lead_time_days', 'notes'
         ]
 
-class BOMComponentCreateSerializer(serializers.Serializer):
-    bom = serializers.PrimaryKeyRelatedField(queryset=BOM.objects.all())
-    sequence_order = serializers.IntegerField(min_value=1)
-    quantity = serializers.DecimalField(max_digits=10, decimal_places=2, required=False, allow_null=True)
-    notes = serializers.CharField(required=False, allow_blank=True)
-    component_type = serializers.ChoiceField(choices=['PRODUCT', 'PROCESS'])
-    
-    # Fields for product component
-    product = serializers.IntegerField(required=False, help_text="Product ID when component_type is PRODUCT")
-    
-    # Fields for process component
-    process_config = serializers.PrimaryKeyRelatedField(
-        queryset=BOMProcessConfig.objects.all(), required=False,
-        help_text="Required when component_type is PROCESS"
-    )
-    raw_material = serializers.IntegerField(required=False, allow_null=True, help_text="RawMaterial ID (optional for process components)")
-    
     def validate(self, data):
-        component_type = data.get('component_type')
-        
-        # Validate required fields based on component type
-        if component_type == 'PRODUCT':
-            if 'product' not in data:
-                raise serializers.ValidationError({"product": "Product is required for product components"})
-            if 'quantity' not in data or data['quantity'] is None:
-                raise serializers.ValidationError({"quantity": "Quantity is required for product components"})
+        # Validate sequence order is unique within BOM
+        if self.instance:  # For updates
+            exists = BOMComponent.objects.filter(
+                bom=data.get('bom', self.instance.bom),
+                sequence_order=data.get('sequence_order', self.instance.sequence_order)
+            ).exclude(pk=self.instance.pk).exists()
+        else:  # For creates
+            exists = BOMComponent.objects.filter(
+                bom=data['bom'],
+                sequence_order=data['sequence_order']
+            ).exists()
             
-            # Validate product exists
-            from inventory.models import Product
-            try:
-                product = Product.objects.get(pk=data['product'])
-                data['product'] = product  # Replace ID with actual object
-            except Product.DoesNotExist:
-                raise serializers.ValidationError({"product": "Product does not exist"})
-                
-        elif component_type == 'PROCESS':
-            if 'process_config' not in data:
-                raise serializers.ValidationError({"process_config": "Process configuration is required for process components"})
+        if exists:
+            raise serializers.ValidationError(
+                {'sequence_order': 'A component with this sequence order already exists in this BOM.'}
+            )
             
-            # Validate raw_material exists if provided
-            if 'raw_material' in data and data['raw_material'] is not None:
-                from inventory.models import RawMaterial
-                try:
-                    raw_material = RawMaterial.objects.get(pk=data['raw_material'])
-                    data['raw_material'] = raw_material  # Replace ID with actual object
-                except RawMaterial.DoesNotExist:
-                    raise serializers.ValidationError({"raw_material": "Raw material does not exist"})
-        
-        # Check for duplicate sequence_order
-        bom = data.get('bom')
-        sequence_order = data.get('sequence_order')
-        if bom and sequence_order:
-            if BOMComponent.objects.filter(bom=bom, sequence_order=sequence_order).exists():
-                raise serializers.ValidationError(
-                    {"sequence_order": f"A component with sequence order {sequence_order} already exists in this BOM"}
-                )
-        
         return data
-    
-    @transaction.atomic
-    def create(self, validated_data):
-        component_type = validated_data.pop('component_type')
-        
-        if component_type == 'PRODUCT':
-            product = validated_data.pop('product')
-            # Remove process component fields if present
-            validated_data.pop('process_config', None)
-            validated_data.pop('raw_material', None)
-            
-            return ProductComponent.objects.create(
-                product=product,
-                **validated_data
-            )
-        else:  # PROCESS
-            process_config = validated_data.pop('process_config')
-            raw_material = validated_data.pop('raw_material', None)
-            # Remove product component fields if present
-            validated_data.pop('product', None)
-            
-            return ProcessComponent.objects.create(
-                process_config=process_config,
-                raw_material=raw_material,
-                **validated_data
-            )
 
 class BOMSerializer(serializers.ModelSerializer):
     components = BOMComponentSerializer(many=True, read_only=True)
@@ -293,7 +162,7 @@ class BOMCreateUpdateSerializer(serializers.ModelSerializer):
         return data
 
 class BOMWithComponentsSerializer(serializers.ModelSerializer):
-    components = BOMComponentCreateSerializer(many=True, required=False)
+    components = BOMComponentCreateUpdateSerializer(many=True, required=False)
     
     class Meta:
         model = BOM
@@ -316,7 +185,7 @@ class BOMWithComponentsSerializer(serializers.ModelSerializer):
         
         for component_data in components_data:
             component_data['bom'] = bom
-            component_serializer = BOMComponentCreateSerializer(data=component_data)
+            component_serializer = BOMComponentCreateUpdateSerializer(data=component_data)
             component_serializer.is_valid(raise_exception=True)
             component_serializer.save()
         
