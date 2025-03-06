@@ -1,20 +1,22 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from .views import SalesOrderViewSet, SalesOrderItemViewSet, ShippingViewSet
+from . import views
 
 router = DefaultRouter()
-router.register(r'sales-orders', SalesOrderViewSet)
-router.register(r'order-items', SalesOrderItemViewSet, basename='order-items')
-router.register(r'shipments', ShippingViewSet)
+router.register(r'orders', views.SalesOrderViewSet)
+router.register(r'order-items', views.SalesOrderItemViewSet)
+router.register(r'shipments', views.ShippingViewSet)
+router.register(r'shipment-items', views.ShipmentItemViewSet)
 
 app_name = 'sales'
 
 urlpatterns = [
     path('', include(router.urls)),
-    path('sales-orders/<int:salesorder_pk>/items/',
-         SalesOrderItemViewSet.as_view({'get': 'list', 'post': 'create'}),
-         name='salesorder-items-list'),
-    path('sales-orders/<int:salesorder_pk>/items/<int:pk>/',
-         SalesOrderItemViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'}),
-         name='salesorder-items-detail'),
+    # Custom endpoints
+    path('orders/<str:order_number>/create-shipment/', 
+         views.CreateShipmentView.as_view(), 
+         name='create-shipment'),
+    path('shipments/<str:shipping_no>/update-status/',
+         views.UpdateShipmentStatusView.as_view(),
+         name='update-shipment-status'),
 ] 

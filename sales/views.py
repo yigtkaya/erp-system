@@ -1,5 +1,5 @@
 from django.shortcuts import render, get_object_or_404
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, generics
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
@@ -8,9 +8,13 @@ from drf_yasg import openapi
 from django_filters import rest_framework as filters
 from django.utils import timezone
 from django.db import models
+from rest_framework.exceptions import ValidationError
 
-from .models import SalesOrder, SalesOrderItem, Shipping
-from .serializers import SalesOrderSerializer, SalesOrderItemSerializer, ShippingSerializer
+from .models import SalesOrder, SalesOrderItem, Shipping, ShipmentItem
+from .serializers import (
+    SalesOrderSerializer, SalesOrderItemSerializer,
+    ShippingSerializer, ShipmentItemSerializer
+)
 from erp_core.permissions import IsAdminUser, HasDepartmentPermission
 
 # Create your views here.
@@ -35,19 +39,15 @@ class SalesOrderViewSet(viewsets.ModelViewSet):
     search_fields = ['order_number', 'customer__name', 'status']
     ordering_fields = ['order_date', 'deadline_date', 'status']
     ordering = ['-order_date']
+    lookup_field = 'id'
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
 
     def perform_create(self, serializer):
-        # Generate order number logic here
-        # You might want to implement your own order number generation logic
-        year = timezone.now().year
-        month = timezone.now().month
-        count = SalesOrder.objects.filter(
-            order_date__year=year,
-            order_date__month=month
-        ).count() + 1
-        
-        order_number = f'SO{year}{month:02d}{count:04d}'
-        serializer.save(order_number=order_number)
+        serializer.save(created_by=self.request.user)
 
     @swagger_auto_schema(
         operation_description="List all sales orders",
@@ -64,7 +64,11 @@ class SalesOrderViewSet(viewsets.ModelViewSet):
         tags=['Sales Orders']
     )
     def create(self, request, *args, **kwargs):
-        return super().create(request, *args, **kwargs)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
 
     @swagger_auto_schema(
         operation_description="Retrieve a sales order",
@@ -126,8 +130,9 @@ class SalesOrderViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
 
 class SalesOrderItemViewSet(viewsets.ModelViewSet):
+    queryset = SalesOrderItem.objects.all()
     serializer_class = SalesOrderItemSerializer
-    permission_classes = [IsAuthenticated & IsAdminUser]
+    permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
         order_id = self.kwargs.get('salesorder_pk')
@@ -161,10 +166,29 @@ class ShippingViewSet(viewsets.ModelViewSet):
     queryset = Shipping.objects.all()
     serializer_class = ShippingSerializer
     permission_classes = [IsAuthenticated]
-    filterset_class = ShippingFilter
-    search_fields = ['shipping_no', 'tracking_number', 'carrier']
-    ordering_fields = ['shipping_date', 'estimated_delivery_date', 'status']
-    ordering = ['-shipping_date']
+    lookup_field = 'shipping_no'
+
+    def create(self, request, *args, **kwargs):
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        except ValidationError as e:
+            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response(
+                {"error": "An error occurred while creating the shipment", "detail": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def perform_create(self, serializer):
+        try:
+            serializer.save(created_by=self.request.user)
+        except ValidationError as e:
+            raise ValidationError({"error": str(e)})
+        except Exception as e:
+            raise Exception(str(e))
 
     @action(detail=False, methods=['get'])
     def performance_metrics(self, request):
@@ -237,3 +261,33 @@ class ShippingViewSet(viewsets.ModelViewSet):
                 "total_amount": sum(shipment.shipping_amount for shipment in shipments)
             }
         })
+
+class ShipmentItemViewSet(viewsets.ModelViewSet):
+    queryset = ShipmentItem.objects.all()
+    serializer_class = ShipmentItemSerializer
+    permission_classes = [IsAuthenticated]
+
+class CreateShipmentView(generics.CreateAPIView):
+    serializer_class = ShippingSerializer
+    permission_classes = [IsAuthenticated]
+
+    def create(self, request, *args, **kwargs):
+        order = get_object_or_404(SalesOrder, order_number=kwargs['order_number'])
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save(order=order, created_by=self.request.user)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+class UpdateShipmentStatusView(generics.UpdateAPIView):
+    queryset = Shipping.objects.all()
+    serializer_class = ShippingSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'shipping_no'
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)

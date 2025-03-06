@@ -2,7 +2,7 @@ from django.db import transaction
 from django.db.models import F
 from django.db.models.signals import post_save, pre_delete
 from django.dispatch import receiver
-from .models import SalesOrderItem, SalesOrder
+from .models import SalesOrderItem, SalesOrder, ShipmentItem
 from inventory.models import InventoryTransaction, Product
 from django.core.exceptions import ValidationError
 
