@@ -10,10 +10,10 @@ from django.utils import timezone
 from django.db import models
 from rest_framework.exceptions import ValidationError
 
-from .models import SalesOrder, SalesOrderItem, Shipping, ShipmentItem
+from .models import SalesOrder, SalesOrderItem, Shipping
 from .serializers import (
     SalesOrderSerializer, SalesOrderItemSerializer,
-    ShippingSerializer, ShipmentItemSerializer
+    ShippingSerializer
 )
 from erp_core.permissions import IsAdminUser, HasDepartmentPermission
 
@@ -22,7 +22,7 @@ from erp_core.permissions import IsAdminUser, HasDepartmentPermission
 class SalesOrderFilter(filters.FilterSet):
     order_date_from = filters.DateFilter(field_name='order_date', lookup_expr='gte')
     order_date_to = filters.DateFilter(field_name='order_date', lookup_expr='lte')
-    status = filters.CharFilter(field_name='status')
+    status = filters.ChoiceFilter(choices=SalesOrder.STATUS_CHOICES)
     customer = filters.CharFilter(field_name='customer__name', lookup_expr='icontains')
 
     class Meta:
@@ -138,57 +138,14 @@ class SalesOrderItemViewSet(viewsets.ModelViewSet):
         order_id = self.kwargs.get('salesorder_pk')
         return SalesOrderItem.objects.filter(sales_order__id=order_id)
 
-class ShippingFilter(filters.FilterSet):
-    shipping_date_from = filters.DateFilter(field_name='shipping_date', lookup_expr='gte')
-    shipping_date_to = filters.DateFilter(field_name='shipping_date', lookup_expr='lte')
-    status = filters.CharFilter(field_name='status')
-    carrier = filters.CharFilter(field_name='carrier')
-    delivery_status = filters.CharFilter(method='filter_delivery_status')
-
-    class Meta:
-        model = Shipping
-        fields = ['shipping_date_from', 'shipping_date_to', 'status', 'carrier']
-
-    def filter_delivery_status(self, queryset, name, value):
-        if value.upper() == 'ON TIME':
-            return queryset.filter(
-                status='DELIVERED',
-                actual_delivery_date__lte=models.F('estimated_delivery_date')
-            )
-        elif value.upper() == 'DELAYED':
-            return queryset.filter(
-                status='DELIVERED',
-                actual_delivery_date__gt=models.F('estimated_delivery_date')
-            )
-        return queryset
-
 class ShippingViewSet(viewsets.ModelViewSet):
     queryset = Shipping.objects.all()
     serializer_class = ShippingSerializer
     permission_classes = [IsAuthenticated]
     lookup_field = 'shipping_no'
 
-    def create(self, request, *args, **kwargs):
-        try:
-            serializer = self.get_serializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            self.perform_create(serializer)
-            return Response(serializer.data, status=status.HTTP_201_CREATED)
-        except ValidationError as e:
-            return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
-        except Exception as e:
-            return Response(
-                {"error": "An error occurred while creating the shipment", "detail": str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
     def perform_create(self, serializer):
-        try:
-            serializer.save(created_by=self.request.user)
-        except ValidationError as e:
-            raise ValidationError({"error": str(e)})
-        except Exception as e:
-            raise Exception(str(e))
+        serializer.save(created_by=self.request.user)
 
     @action(detail=False, methods=['get'])
     def performance_metrics(self, request):
@@ -261,11 +218,6 @@ class ShippingViewSet(viewsets.ModelViewSet):
                 "total_amount": sum(shipment.shipping_amount for shipment in shipments)
             }
         })
-
-class ShipmentItemViewSet(viewsets.ModelViewSet):
-    queryset = ShipmentItem.objects.all()
-    serializer_class = ShipmentItemSerializer
-    permission_classes = [IsAuthenticated]
 
 class CreateShipmentView(generics.CreateAPIView):
     serializer_class = ShippingSerializer

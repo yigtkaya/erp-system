@@ -6,7 +6,6 @@ router = DefaultRouter()
 router.register(r'orders', views.SalesOrderViewSet)
 router.register(r'order-items', views.SalesOrderItemViewSet)
 router.register(r'shipments', views.ShippingViewSet)
-router.register(r'shipment-items', views.ShipmentItemViewSet)
 
 app_name = 'sales'
 

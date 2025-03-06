@@ -2,7 +2,7 @@ from django.db import transaction
 from django.db.models import F
 from django.db.models.signals import post_save, pre_delete
 from django.dispatch import receiver
-from .models import SalesOrderItem, SalesOrder, ShipmentItem
+from .models import SalesOrderItem, SalesOrder, Shipping
 from inventory.models import InventoryTransaction, Product
 from django.core.exceptions import ValidationError
 
@@ -16,7 +16,7 @@ def handle_inventory_reservation(sender, instance, created, **kwargs):
         old_quantity = instance._old_quantity if hasattr(instance, '_old_quantity') else 0
         delta = instance.quantity - old_quantity
         
-        if instance.sales_order.status == 'APPROVED':
+        if instance.sales_order.status == 'OPEN':
             if product.current_stock >= delta:
                 product.current_stock = F('current_stock') - delta
                 product.save(update_fields=['current_stock'])

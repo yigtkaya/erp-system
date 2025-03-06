@@ -10,11 +10,8 @@ from django.utils import timezone
 
 class SalesOrder(BaseModel):
     STATUS_CHOICES = [
-        ('DRAFT', 'Draft'),
-        ('PENDING_APPROVAL', 'Pending Approval'),
-        ('APPROVED', 'Approved'),
-        ('CANCELLED', 'Cancelled'),
-        ('COMPLETED', 'Completed')
+        ('OPEN', 'Open'),
+        ('CLOSED', 'Closed'),
     ]
     
     order_number = models.CharField(max_length=50, unique=True)
@@ -27,7 +24,7 @@ class SalesOrder(BaseModel):
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
-        default='DRAFT'
+        default='OPEN'
     )
     tracker = FieldTracker(fields=['status'])
     
@@ -48,12 +45,6 @@ class SalesOrder(BaseModel):
 
     def clean(self):
         super().clean()
-        if self.status in ['PENDING_APPROVAL', 'APPROVED'] and not self.order_receiving_date:
-            raise ValidationError("Order receiving date is required for orders pending approval or approved")
-            
-        if self.status in ['PENDING_APPROVAL', 'APPROVED'] and not self.kapsam_deadline_date:
-            raise ValidationError("Kapsam deadline date is required for orders pending approval or approved")
-
         if self.order_receiving_date and self.order_receiving_date > self.deadline_date:
             raise ValidationError("Order receiving date cannot be later than deadline date")
             
@@ -84,8 +75,12 @@ class Shipping(BaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     shipping_no = models.CharField(max_length=50, unique=True)
     shipping_date = models.DateField()
-    shipping_amount = models.IntegerField()  # Changed to IntegerField since it's smallint in the table
+    shipping_amount = models.IntegerField()
     order = models.ForeignKey(SalesOrder, on_delete=models.PROTECT, related_name='shipments')
+    order_item = models.ForeignKey(SalesOrderItem, on_delete=models.PROTECT, related_name='shipments')
+    product = models.ForeignKey(Product, on_delete=models.PROTECT)
+    quantity = models.PositiveIntegerField()
+    package_number = models.PositiveIntegerField(default=1)
     shipping_note = models.TextField(blank=True, null=True)
 
     def __str__(self):
@@ -95,31 +90,13 @@ class Shipping(BaseModel):
         ordering = ['-shipping_date']
         verbose_name = 'Shipping'
         verbose_name_plural = 'Shippings'
-
-    def save(self, *args, **kwargs):
-        if not self.shipping_no:
-            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-            self.shipping_no = f"SHP-{self.order.order_number}-{timestamp}"
-        super().save(*args, **kwargs)
-
-class ShipmentItem(BaseModel):
-    shipment = models.ForeignKey(Shipping, on_delete=models.CASCADE, related_name='items')
-    order_item = models.ForeignKey(SalesOrderItem, on_delete=models.PROTECT, related_name='shipment_items')
-    product = models.ForeignKey(Product, on_delete=models.PROTECT)
-    quantity = models.PositiveIntegerField()
-    package_number = models.PositiveIntegerField(default=1)
-    lot_number = models.CharField(max_length=50, blank=True, null=True)
-    serial_numbers = models.JSONField(default=list, blank=True, help_text="List of serial numbers for tracked items")
-    
-    class Meta:
-        ordering = ['package_number', 'id']
-        unique_together = [['shipment', 'order_item', 'package_number']]
+        unique_together = [['order', 'order_item', 'package_number']]
 
     def clean(self):
         super().clean()
         # Validate against order item quantity
         total_shipped = (
-            ShipmentItem.objects
+            Shipping.objects
             .filter(order_item=self.order_item)
             .exclude(pk=self.pk)
             .aggregate(total=Sum('quantity'))['total'] or 0
@@ -131,10 +108,10 @@ class ShipmentItem(BaseModel):
             })
 
     def save(self, *args, **kwargs):
-        if not self.product_id:
+        if not self.shipping_no:
+            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+            self.shipping_no = f"SHP-{self.order.order_number}-{timestamp}"
+        if not self.product_id and self.order_item:
             self.product = self.order_item.product
         self.clean()
         super().save(*args, **kwargs)
-
-    def __str__(self):
-        return f"{self.shipment.shipping_no} - {self.product.product_code} ({self.quantity})"
