@@ -118,14 +118,12 @@ class SalesOrderSerializer(serializers.ModelSerializer):
     shipments = ShippingSerializer(many=True, read_only=True)
     customer_name = serializers.CharField(source='customer.name', read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
-    order_number = serializers.CharField(read_only=True)
     
     class Meta:
         model = SalesOrder
         fields = ['id', 'order_number', 'customer', 'customer_name', 'order_date', 
                  'order_receiving_date', 'deadline_date', 'kapsam_deadline_date',
                  'approved_by', 'status', 'status_display', 'items', 'shipments']
-        read_only_fields = ['order_number']
 
     def get_total_shipped_amount(self, obj):
         """Calculate total shipped quantity across all shipments"""

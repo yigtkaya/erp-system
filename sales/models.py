@@ -17,7 +17,7 @@ class SalesOrder(BaseModel):
         ('COMPLETED', 'Completed')
     ]
     
-    order_number = models.CharField(max_length=50, unique=True, editable=False)
+    order_number = models.CharField(max_length=50, unique=True)
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT)
     order_date = models.DateField(auto_now_add=True)
     order_receiving_date = models.DateField(null=True, blank=True, help_text="Date when the order was received from customer")
@@ -43,26 +43,7 @@ class SalesOrder(BaseModel):
 
     def save(self, *args, **kwargs):
         if not self.order_number:
-            # Get the last order number for the current year and month
-            year = timezone.now().year
-            month = timezone.now().month
-            last_order = SalesOrder.objects.filter(
-                created_at__year=year,
-                created_at__month=month
-            ).order_by('-order_number').first()
-
-            # Extract the sequence number from the last order number or start from 0
-            if last_order and last_order.order_number:
-                try:
-                    last_sequence = int(last_order.order_number[-4:])
-                except ValueError:
-                    last_sequence = 0
-            else:
-                last_sequence = 0
-
-            # Generate new order number: SO-YYYYMM-XXXX
-            self.order_number = f'SO-{year}{month:02d}-{(last_sequence + 1):04d}'
-
+            raise ValidationError("Order number is required")
         super().save(*args, **kwargs)
 
     def clean(self):
