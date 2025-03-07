@@ -134,8 +134,9 @@ class Customer(BaseModel):
     name = models.CharField(max_length=100)
 
     def clean(self):
-        if not self.code.isalnum():
-            raise ValidationError("Customer code must contain only letters and numbers")
+        # Check if code contains only alphanumeric characters and periods
+        if not all(c.isalnum() or c == '.' for c in self.code):
+            raise ValidationError("Customer code must contain only letters, numbers, and periods")
         
         if len(self.code) < 4:
             raise ValidationError("Customer code must be at least 4 characters")
