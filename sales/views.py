@@ -214,8 +214,7 @@ class ShippingViewSet(viewsets.ModelViewSet):
             "metrics": {
                 "total_shipments": total_shipments,
                 "delivered_shipments": delivered_shipments,
-                "on_time_deliveries": on_time_deliveries,
-                "total_amount": sum(shipment.shipping_amount for shipment in shipments)
+                "on_time_deliveries": on_time_deliveries
             }
         })
 
