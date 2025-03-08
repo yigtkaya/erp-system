@@ -16,3 +16,4 @@ django-storages[s3]
 python-decouple
 django-anymail[mailgun]
 django-filter==23.5
+drf-nested-routers==0.94.1

@@ -70,8 +70,7 @@ class Command(BaseCommand):
                             order_number=row['Alım Sipariş No'].strip(),
                             defaults={
                                 'customer': customer,
-                                'order_receiving_date': order_date,
-                                'deadline_date': order_date,  # Using same date as deadline for now
+                                'created_at': order_date,
                                 'status': 'OPEN'
                             }
                         )
@@ -85,7 +84,7 @@ class Command(BaseCommand):
                             ))
                             continue
 
-                        # Create or update order item
+                        # Create or update order item with dates
                         quantity = int(float(row['Sipariş\nMiktar'].replace(',', '')))
                         fulfilled = int(float(row['Sipariş Teslim Miktar'].replace(',', '') or 0))
                         
@@ -93,8 +92,11 @@ class Command(BaseCommand):
                             sales_order=order,
                             product=product,
                             defaults={
-                                'quantity': quantity,
-                                'fulfilled_quantity': fulfilled
+                                'ordered_quantity': quantity,
+                                'fulfilled_quantity': fulfilled,
+                                'receiving_date': order_date,
+                                'deadline_date': order_date,
+                                'kapsam_deadline_date': order_date
                             }
                         )
 

@@ -4,16 +4,16 @@ from .models import SalesOrder, SalesOrderItem, Shipping
 class SalesOrderItemInline(admin.TabularInline):
     model = SalesOrderItem
     extra = 1
-    readonly_fields = ['fulfilled_quantity']
+    readonly_fields = ['fulfilled_quantity', 'ordered_quantity']
 
 @admin.register(SalesOrder)
 class SalesOrderAdmin(admin.ModelAdmin):
-    list_display = ['order_number', 'customer', 'order_date', 'deadline_date', 'status']
-    list_filter = ['status', 'order_date']
+    list_display = ['order_number', 'customer', 'created_at', 'status']
+    list_filter = ['status', 'created_at']
     search_fields = ['order_number', 'customer__name']
     readonly_fields = ['order_number']
     inlines = [SalesOrderItemInline]
-    date_hierarchy = 'order_date'
+    date_hierarchy = 'created_at'
 
 @admin.register(Shipping)
 class ShippingAdmin(admin.ModelAdmin):

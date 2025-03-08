@@ -7,7 +7,7 @@ from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from django_filters import rest_framework as filters
 from django.utils import timezone
-from django.db import models
+from django.db import models, transaction
 from rest_framework.exceptions import ValidationError
 
 from .models import SalesOrder, SalesOrderItem, Shipping
@@ -20,14 +20,14 @@ from erp_core.permissions import IsAdminUser, HasDepartmentPermission
 # Create your views here.
 
 class SalesOrderFilter(filters.FilterSet):
-    order_date_from = filters.DateFilter(field_name='order_date', lookup_expr='gte')
-    order_date_to = filters.DateFilter(field_name='order_date', lookup_expr='lte')
+    created_at_from = filters.DateFilter(field_name='created_at', lookup_expr='gte')
+    created_at_to = filters.DateFilter(field_name='created_at', lookup_expr='lte')
     status = filters.ChoiceFilter(choices=SalesOrder.STATUS_CHOICES)
     customer = filters.CharFilter(field_name='customer__name', lookup_expr='icontains')
 
     class Meta:
         model = SalesOrder
-        fields = ['order_date_from', 'order_date_to', 'status', 'customer']
+        fields = ['created_at_from', 'created_at_to', 'status', 'customer']
 
 class SalesOrderViewSet(viewsets.ModelViewSet):
     queryset = SalesOrder.objects.prefetch_related('items').all().select_related(
@@ -37,9 +37,8 @@ class SalesOrderViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     filterset_class = SalesOrderFilter
     search_fields = ['order_number', 'customer__name', 'status']
-    ordering_fields = ['order_date', 'deadline_date', 'status']
-    ordering = ['-order_date']
-    lookup_field = 'id'
+    ordering_fields = ['created_at', 'status']
+    ordering = ['-created_at']
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -47,7 +46,11 @@ class SalesOrderViewSet(viewsets.ModelViewSet):
         return context
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        with transaction.atomic():
+            order = serializer.save(created_by=self.request.user)
+            # Validate item dates after creation
+            for item in order.items.all():
+                item.full_clean()
 
     @swagger_auto_schema(
         operation_description="List all sales orders",
@@ -92,9 +95,9 @@ class SalesOrderViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
         sales_order = self.get_object()
-        if sales_order.status != 'PENDING_APPROVAL':
+        if sales_order.status != 'OPEN':
             return Response(
-                {"detail": "Only orders in PENDING_APPROVAL status can be approved"},
+                {"detail": "Only OPEN orders can be approved"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -135,8 +138,51 @@ class SalesOrderItemViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        order_id = self.kwargs.get('salesorder_pk')
-        return SalesOrderItem.objects.filter(sales_order__id=order_id)
+        order_id = self.kwargs.get('order_pk')
+        if order_id:
+            return SalesOrderItem.objects.filter(sales_order_id=order_id)
+        return SalesOrderItem.objects.none()
+
+    def update(self, request, *args, **kwargs):
+        # Get the parent order first
+        order_id = self.kwargs.get('order_pk')
+        order = get_object_or_404(SalesOrder, pk=order_id)
+        
+        # Get the specific item
+        instance = self.get_object()
+        partial = kwargs.pop('partial', False)
+        
+        # Prevent updates if order is closed
+        if order.status == 'CLOSED':
+            return Response(
+                {"detail": "Cannot update items in a closed order"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
+
+    def destroy(self, request, *args, **kwargs):
+        order_id = self.kwargs.get('order_pk')
+        order = get_object_or_404(SalesOrder, pk=order_id)
+        instance = self.get_object()
+        
+        if order.status == 'CLOSED':
+            return Response(
+                {"detail": "Cannot delete items from a closed order"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        self.perform_destroy(instance)
+        order.update_order_status()  # Update parent order status
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    def retrieve(self, request, *args, **kwargs):
+        # Ensure the item belongs to the parent order
+        self.get_object()  # Will trigger 404 if not found in parent order
+        return super().retrieve(request, *args, **kwargs)
 
 class ShippingViewSet(viewsets.ModelViewSet):
     queryset = Shipping.objects.all()
@@ -145,7 +191,11 @@ class ShippingViewSet(viewsets.ModelViewSet):
     lookup_field = 'shipping_no'
 
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        try:
+            with transaction.atomic():
+                serializer.save(created_by=self.request.user)
+        except ValidationError as e:
+            raise serializers.ValidationError(e.message_dict)
 
     @action(detail=False, methods=['get'])
     def performance_metrics(self, request):
@@ -218,12 +268,19 @@ class ShippingViewSet(viewsets.ModelViewSet):
             }
         })
 
+class SalesOrderByNumberView(generics.RetrieveAPIView):
+    queryset = SalesOrder.objects.all()
+    serializer_class = SalesOrderSerializer
+    permission_classes = [IsAuthenticated]
+    lookup_field = 'order_number'
+    lookup_url_kwarg = 'order_number'
+
 class CreateShipmentView(generics.CreateAPIView):
     serializer_class = ShippingSerializer
     permission_classes = [IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
-        order = get_object_or_404(SalesOrder, order_number=kwargs['order_number'])
+        order = get_object_or_404(SalesOrder, id=kwargs['order_id'])
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         serializer.save(order=order, created_by=self.request.user)
