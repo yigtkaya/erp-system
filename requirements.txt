@@ -17,3 +17,4 @@ python-decouple
 django-anymail[mailgun]
 django-filter==23.5
 drf-nested-routers==0.94.1
+python-dateutil==2.9.0

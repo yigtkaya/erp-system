@@ -9,6 +9,7 @@ router.register(r'orders', views.SalesOrderViewSet, basename='order')
 # Create nested router for order items
 orders_router = routers.NestedDefaultRouter(router, r'orders', lookup='order')
 orders_router.register(r'items', views.SalesOrderItemViewSet, basename='order-items')
+orders_router.register(r'shipments', views.ShippingViewSet, basename='order-shipments')
 
 router.register(r'shipments', views.ShippingViewSet)
 

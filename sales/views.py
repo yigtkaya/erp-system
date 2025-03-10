@@ -13,7 +13,8 @@ from rest_framework.exceptions import ValidationError
 from .models import SalesOrder, SalesOrderItem, Shipping
 from .serializers import (
     SalesOrderSerializer, SalesOrderItemSerializer,
-    ShippingSerializer
+    ShippingSerializer, BatchSalesOrderItemUpdateSerializer,
+    BatchSalesOrderItemCreateSerializer
 )
 from erp_core.permissions import IsAdminUser, HasDepartmentPermission
 
@@ -136,6 +137,7 @@ class SalesOrderItemViewSet(viewsets.ModelViewSet):
     queryset = SalesOrderItem.objects.all()
     serializer_class = SalesOrderItemSerializer
     permission_classes = [IsAuthenticated]
+    http_method_names = ['get', 'post', 'patch', 'delete', 'head', 'options']  # Explicitly allow PATCH
 
     def get_queryset(self):
         order_id = self.kwargs.get('order_pk')
@@ -183,12 +185,111 @@ class SalesOrderItemViewSet(viewsets.ModelViewSet):
         # Ensure the item belongs to the parent order
         self.get_object()  # Will trigger 404 if not found in parent order
         return super().retrieve(request, *args, **kwargs)
+        
+    @swagger_auto_schema(
+        operation_description="Update multiple sales order items in a single request",
+        request_body=BatchSalesOrderItemUpdateSerializer,
+        responses={
+            200: openapi.Response(
+                description="Items updated successfully",
+                schema=SalesOrderItemSerializer(many=True)
+            ),
+            400: "Bad request if validation fails or order is closed",
+            404: "Order not found"
+        },
+        tags=['Sales Order Items']
+    )
+    @action(detail=False, methods=['patch'], url_path='batch-update')
+    def batch_update(self, request, order_pk=None):
+        """
+        Update multiple sales order items in a single request.
+        """
+        # Get the parent order
+        order = get_object_or_404(SalesOrder, pk=order_pk)
+        
+        # Prevent updates if order is closed
+        if order.status == 'CLOSED':
+            return Response(
+                {"detail": "Cannot update items in a closed order"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Use the batch update serializer
+        serializer = BatchSalesOrderItemUpdateSerializer(
+            instance=order,
+            data=request.data,
+            context={'request': request, 'order_id': order_pk}
+        )
+        
+        serializer.is_valid(raise_exception=True)
+        result = serializer.update(order, serializer.validated_data)
+        
+        # Return the updated items
+        response_serializer = SalesOrderItemSerializer(
+            result['updated_items'], 
+            many=True,
+            context={'request': request}
+        )
+        
+        return Response(response_serializer.data)
+        
+    @swagger_auto_schema(
+        operation_description="Create multiple sales order items in a single request",
+        request_body=BatchSalesOrderItemCreateSerializer,
+        responses={
+            201: openapi.Response(
+                description="Items created successfully",
+                schema=SalesOrderItemSerializer(many=True)
+            ),
+            400: "Bad request if validation fails or order is closed",
+            404: "Order not found"
+        },
+        tags=['Sales Order Items']
+    )
+    @action(detail=False, methods=['post'], url_path='batch-create')
+    def batch_create(self, request, order_pk=None):
+        """
+        Create multiple sales order items in a single request.
+        """
+        # Get the parent order
+        order = get_object_or_404(SalesOrder, pk=order_pk)
+        
+        # Prevent updates if order is closed
+        if order.status == 'CLOSED':
+            return Response(
+                {"detail": "Cannot add items to a closed order"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Use the batch create serializer
+        serializer = BatchSalesOrderItemCreateSerializer(
+            data=request.data,
+            context={'request': request, 'order_id': order_pk}
+        )
+        
+        serializer.is_valid(raise_exception=True)
+        result = serializer.create(serializer.validated_data)
+        
+        # Return the created items
+        response_serializer = SalesOrderItemSerializer(
+            result['created_items'], 
+            many=True,
+            context={'request': request}
+        )
+        
+        return Response(response_serializer.data, status=status.HTTP_201_CREATED)
 
 class ShippingViewSet(viewsets.ModelViewSet):
     queryset = Shipping.objects.all()
     serializer_class = ShippingSerializer
     permission_classes = [IsAuthenticated]
     lookup_field = 'shipping_no'
+
+    def get_queryset(self):
+        order_id = self.kwargs.get('order_pk')
+        if order_id:
+            return Shipping.objects.filter(order_id=order_id)
+        return Shipping.objects.none()
 
     def perform_create(self, serializer):
         try:
