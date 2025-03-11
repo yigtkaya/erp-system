@@ -251,7 +251,7 @@ class BOMComponent(BaseModel):
 class WorkflowProcess(BaseModel):
     """
     Represents a manufacturing process step in the workflow.
-    Each process has a process number and stock code for tracking.
+    Each process is uniquely identified by product, process, and stock code combination.
     Some processes may not require machines (e.g., manual assembly, quality control).
     """
     product = models.ForeignKey(
@@ -261,19 +261,7 @@ class WorkflowProcess(BaseModel):
         help_text="Product this workflow process belongs to"
     )
     process = models.ForeignKey(ManufacturingProcess, on_delete=models.PROTECT)
-    process_number = models.CharField(max_length=50, unique=True, help_text="Unique process number for tracking")
     stock_code = models.CharField(max_length=50, help_text="Stock code for the process output")
-    raw_material = models.ForeignKey('inventory.RawMaterial', on_delete=models.PROTECT, null=True, blank=True)
-    axis_count = models.CharField(
-        max_length=20,
-        choices=AxisCount.choices,
-        help_text="Required machine axis count (only if process requires a machine)",
-        blank=True,
-        null=True
-    )
-    estimated_duration_minutes = models.IntegerField(blank=True, null=True)
-    tooling_requirements = models.TextField(blank=True, null=True)
-    quality_checks = models.TextField(blank=True, null=True)
     sequence_order = models.IntegerField(
         help_text="Order of this process in the product's workflow"
     )
@@ -282,23 +270,18 @@ class WorkflowProcess(BaseModel):
         verbose_name = "Workflow Process"
         verbose_name_plural = "Workflow Processes"
         ordering = ['product', 'sequence_order']
-        unique_together = [('product', 'sequence_order')]
+        unique_together = [
+            ('product', 'sequence_order'),
+            ('product', 'process', 'stock_code')  # Ensure unique combination
+        ]
         indexes = [
             models.Index(fields=['product']),
-            models.Index(fields=['process_number']),
             models.Index(fields=['stock_code']),
+            models.Index(fields=['product', 'process', 'stock_code']),  # Index for the unique combination
         ]
 
     def clean(self):
         super().clean()
-        # Validate axis_count based on requires_machine
-        if self.requires_machine:
-            if not self.axis_count:
-                raise ValidationError("Axis count is required when process requires a machine")
-        else:
-            if self.axis_count:
-                raise ValidationError("Axis count should not be set for processes that don't require machines")
-
         # Check for duplicate sequence_order within the same product
         if self.product_id is not None and self.sequence_order is not None:
             duplicate_exists = WorkflowProcess.objects.filter(
@@ -316,7 +299,86 @@ class WorkflowProcess(BaseModel):
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.product.product_code} - {self.process_number} - {self.process.process_name}"
+        return f"{self.product.product_code} - {self.process.process_name} - {self.stock_code}"
+
+class ProcessConfig(BaseModel):
+    """
+    Represents configuration details for a specific manufacturing process 
+    according to the product and operation that will take place.
+    This allows for product-specific customization of manufacturing processes.
+    """
+    workflow_process = models.ForeignKey(
+        WorkflowProcess, 
+        on_delete=models.CASCADE,
+        related_name='process_configs',
+        help_text="The workflow process this configuration belongs to"
+    )
+    raw_material = models.ForeignKey(
+        'inventory.RawMaterial', 
+        on_delete=models.PROTECT, 
+        null=True, 
+        blank=True,
+        help_text="Raw material required for this process"
+    )
+    axis_count = models.CharField(
+        max_length=20,
+        choices=AxisCount.choices,
+        help_text="Required machine axis count for this process",
+        blank=True,
+        null=True
+    )
+    estimated_duration_minutes = models.IntegerField(
+        blank=True, 
+        null=True,
+        help_text="Estimated time to complete this process in minutes"
+    )
+    tooling_requirements = models.TextField(
+        blank=True, 
+        null=True,
+        help_text="Tools and equipment required for this process"
+    )
+    quality_checks = models.TextField(
+        blank=True, 
+        null=True,
+        help_text="Quality control procedures for this process"
+    )
+    machine_type = models.CharField(
+        max_length=50, 
+        choices=MachineType.choices,
+        blank=True,
+        null=True,
+        help_text="Type of machine required for this process"
+    )
+    setup_time_minutes = models.IntegerField(
+        blank=True, 
+        null=True,
+        help_text="Time required to set up the machine in minutes"
+    )
+    notes = models.TextField(
+        blank=True, 
+        null=True,
+        help_text="Additional notes or instructions for this process"
+    )
+
+    class Meta:
+        verbose_name = "Process Configuration"
+        verbose_name_plural = "Process Configurations"
+        indexes = [
+            models.Index(fields=['workflow_process']),
+            models.Index(fields=['machine_type']),
+        ]
+
+    def clean(self):
+        super().clean()
+        # Add validation logic if needed
+        pass
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Config for {self.workflow_process}"
 
 class WorkOrderStatusTransition:
     """
@@ -665,6 +727,8 @@ class SubWorkOrderProcess(models.Model):
     
     sub_work_order = models.ForeignKey(SubWorkOrder, on_delete=models.CASCADE, related_name='processes')
     workflow_process = models.ForeignKey(WorkflowProcess, on_delete=models.PROTECT, null=True)
+    process_config = models.ForeignKey(ProcessConfig, on_delete=models.PROTECT, null=True, blank=True,
+                                      help_text="Specific process configuration to use")
     machine = models.ForeignKey(Machine, on_delete=models.PROTECT, null=True, blank=True)
     sequence_order = models.IntegerField()
     planned_duration_minutes = models.IntegerField(null=True, blank=True)
@@ -681,6 +745,7 @@ class SubWorkOrderProcess(models.Model):
         indexes = [
             models.Index(fields=['sub_work_order']),
             models.Index(fields=['workflow_process']),
+            models.Index(fields=['process_config']),
             models.Index(fields=['machine']),
             models.Index(fields=['status']),
             models.Index(fields=['start_time']),

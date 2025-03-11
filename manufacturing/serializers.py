@@ -2,7 +2,8 @@ from rest_framework import serializers
 from .models import (
     WorkOrder, BOM, Machine, ManufacturingProcess,
     SubWorkOrder, BOMComponent, WorkOrderOutput,
-    SubWorkOrderProcess, WorkOrderStatusChange, WorkflowProcess
+    SubWorkOrderProcess, WorkOrderStatusChange, WorkflowProcess,
+    ProcessConfig
 )
 from inventory.serializers import InventoryCategorySerializer, ProductSerializer, RawMaterialSerializer
 from django.db import transaction
@@ -33,64 +34,102 @@ class ManufacturingProcessSerializer(serializers.ModelSerializer):
 
 class WorkflowProcessSerializer(serializers.ModelSerializer):
     process_details = ManufacturingProcessSerializer(source='process', read_only=True)
-    raw_material_details = RawMaterialSerializer(source='raw_material', read_only=True)
     product_details = ProductSerializer(source='product', read_only=True)
+    process_configs = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
 
     class Meta:
         model = WorkflowProcess
         fields = [
             'id', 'product', 'product_details',
             'process', 'process_details',
-            'process_number', 'stock_code',
-            'raw_material', 'raw_material_details',
-            'requires_machine', 'axis_count',
-            'estimated_duration_minutes',
-            'tooling_requirements', 'quality_checks',
-            'sequence_order', 'created_at', 'modified_at'
+            'stock_code', 'sequence_order',
+            'process_configs', 'created_at', 'modified_at'
         ]
 
 class WorkflowProcessCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = WorkflowProcess
         fields = [
-            'id', 'product', 'process',
-            'process_number', 'stock_code',
-            'raw_material', 'requires_machine',
-            'axis_count', 'estimated_duration_minutes',
-            'tooling_requirements', 'quality_checks',
-            'sequence_order'
+            'product', 'process',
+            'stock_code', 'sequence_order'
         ]
 
     def validate(self, data):
-        # Validate axis_count based on requires_machine
-        requires_machine = data.get('requires_machine', False)
-        axis_count = data.get('axis_count')
-        
-        if requires_machine and not axis_count:
-            raise serializers.ValidationError(
-                "Axis count is required when process requires a machine"
-            )
-        if not requires_machine and axis_count:
-            raise serializers.ValidationError(
-                "Axis count should not be set for processes that don't require machines"
-            )
-
-        # Validate sequence_order uniqueness
-        product = data.get('product')
-        sequence_order = data.get('sequence_order')
-        
-        if product and sequence_order:
+        # Check for duplicate sequence_order within the same product
+        if 'product' in data and 'sequence_order' in data:
+            product = data['product']
+            sequence_order = data['sequence_order']
+            
+            # If updating an existing instance, exclude the current instance from the check
+            instance_id = self.instance.id if self.instance else None
+            
+            # Check if another process with the same sequence_order exists for this product
             exists = WorkflowProcess.objects.filter(
                 product=product,
                 sequence_order=sequence_order
             )
-            if self.instance:
-                exists = exists.exclude(pk=self.instance.pk)
+            
+            if instance_id:
+                exists = exists.exclude(id=instance_id)
+                
             if exists.exists():
-                raise serializers.ValidationError(
-                    "A process with this sequence order already exists for this product"
-                )
-        
+                raise serializers.ValidationError({
+                    'sequence_order': f'A process with sequence order {sequence_order} already exists for this product.'
+                })
+
+        # Check for duplicate product-process-stock_code combination
+        if all(key in data for key in ['product', 'process', 'stock_code']):
+            product = data['product']
+            process = data['process']
+            stock_code = data['stock_code']
+            
+            exists = WorkflowProcess.objects.filter(
+                product=product,
+                process=process,
+                stock_code=stock_code
+            )
+            
+            if instance_id:
+                exists = exists.exclude(id=instance_id)
+                
+            if exists.exists():
+                raise serializers.ValidationError({
+                    'non_field_errors': 'A workflow process with this product, process, and stock code combination already exists.'
+                })
+                
+        return data
+
+class ProcessConfigSerializer(serializers.ModelSerializer):
+    raw_material_details = RawMaterialSerializer(source='raw_material', read_only=True)
+    workflow_process_details = WorkflowProcessSerializer(source='workflow_process', read_only=True)
+    machine_type_display = serializers.CharField(source='get_machine_type_display', read_only=True)
+    axis_count_display = serializers.CharField(source='get_axis_count_display', read_only=True)
+
+    class Meta:
+        model = ProcessConfig
+        fields = [
+            'id', 'workflow_process', 'workflow_process_details',
+            'raw_material', 'raw_material_details',
+            'axis_count', 'axis_count_display',
+            'estimated_duration_minutes',
+            'tooling_requirements', 'quality_checks',
+            'machine_type', 'machine_type_display',
+            'setup_time_minutes', 'notes',
+            'created_at', 'modified_at'
+        ]
+
+class ProcessConfigCreateUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProcessConfig
+        fields = [
+            'workflow_process', 'raw_material',
+            'axis_count', 'estimated_duration_minutes',
+            'tooling_requirements', 'quality_checks',
+            'machine_type', 'setup_time_minutes', 'notes'
+        ]
+
+    def validate(self, data):
+        # Add any validation logic here if needed
         return data
 
 class BOMComponentSerializer(serializers.ModelSerializer):
@@ -266,45 +305,49 @@ class SubWorkOrderProcessSerializer(serializers.ModelSerializer):
     machine = MachineSerializer(read_only=True)
     operator = UserSerializer(read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    workflow_process_details = WorkflowProcessSerializer(source='workflow_process', read_only=True)
+    process_config_details = ProcessConfigSerializer(source='process_config', read_only=True)
 
     class Meta:
         model = SubWorkOrderProcess
         fields = [
-            'id', 'sub_work_order', 'process', 'machine',
-            'sequence_order', 'planned_duration_minutes',
+            'id', 'sub_work_order', 'workflow_process', 'workflow_process_details',
+            'process_config', 'process_config_details',
+            'machine', 'sequence_order', 'planned_duration_minutes',
             'actual_duration_minutes', 'status', 'status_display',
-            'start_time', 'end_time', 'operator',
-            'setup_time_minutes', 'notes'
+            'start_time', 'end_time', 'operator', 'setup_time_minutes',
+            'notes'
         ]
 
 class SubWorkOrderProcessCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SubWorkOrderProcess
         fields = [
-            'id', 'sub_work_order', 'process', 'machine',
-            'sequence_order', 'planned_duration_minutes',
-            'actual_duration_minutes', 'status',
-            'start_time', 'end_time', 'operator',
+            'sub_work_order', 'workflow_process', 'process_config',
+            'machine', 'sequence_order', 'planned_duration_minutes',
+            'status', 'start_time', 'end_time', 'operator',
             'setup_time_minutes', 'notes'
         ]
 
     def validate(self, data):
         # Validate machine compatibility with process
-        if 'machine' in data and 'process' in data:
-            machine = data['machine']
-            process = data['process']
-            
-            if machine.machine_type != process.machine_type:
-                raise serializers.ValidationError("Machine type does not match process requirements")
+        machine = data.get('machine')
+        workflow_process = data.get('workflow_process')
+        process_config = data.get('process_config')
+        
+        if machine and process_config and process_config.machine_type:
+            if machine.machine_type != process_config.machine_type:
+                raise serializers.ValidationError(
+                    f"Machine type {machine.machine_type} is not compatible with "
+                    f"required machine type {process_config.machine_type}"
+                )
                 
-            if machine.status != 'AVAILABLE':
-                raise serializers.ValidationError("Selected machine is not available")
-        
-        # Validate time tracking
-        if 'start_time' in data and 'end_time' in data:
-            if data['end_time'] and data['start_time'] and data['end_time'] < data['start_time']:
-                raise serializers.ValidationError("End time cannot be before start time")
-        
+        # Ensure process_config belongs to the workflow_process if both are provided
+        if workflow_process and process_config and process_config.workflow_process != workflow_process:
+            raise serializers.ValidationError(
+                "The selected process configuration does not belong to the selected workflow process"
+            )
+                
         return data
 
 class SubWorkOrderSerializer(serializers.ModelSerializer):

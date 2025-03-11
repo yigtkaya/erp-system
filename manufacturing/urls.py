@@ -10,6 +10,7 @@ router.register(r'boms', views.BOMViewSet, basename='bom')
 router.register(r'machines', views.MachineViewSet, basename='machine')
 router.register(r'manufacturing-processes', views.ManufacturingProcessViewSet, basename='manufacturing-process')
 router.register(r'workflow-processes', views.WorkflowProcessViewSet, basename='workflow-process')
+router.register(r'process-configs', views.ProcessConfigViewSet, basename='process-config')
 router.register(r'sub-work-orders', views.SubWorkOrderViewSet, basename='sub-work-order')
 router.register(r'sub-work-order-processes', views.SubWorkOrderProcessViewSet, basename='sub-work-order-process')
 router.register(r'work-order-outputs', views.WorkOrderOutputViewSet, basename='work-order-output')
@@ -33,6 +34,14 @@ urlpatterns = [
     path('products/<int:product_pk>/workflow-processes/<int:pk>/',
          views.WorkflowProcessViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'}),
          name='product-workflow-processes-detail'),
+         
+    # Nested process configs routes
+    path('workflow-processes/<int:workflow_process_pk>/configs/',
+         views.ProcessConfigViewSet.as_view({'get': 'list', 'post': 'create'}),
+         name='workflow-process-configs-list'),
+    path('workflow-processes/<int:workflow_process_pk>/configs/<int:pk>/',
+         views.ProcessConfigViewSet.as_view({'get': 'retrieve', 'put': 'update', 'delete': 'destroy'}),
+         name='workflow-process-configs-detail'),
          
     # Nested SubWorkOrder processes routes
     path('sub-work-orders/<int:sub_work_order_pk>/processes/',

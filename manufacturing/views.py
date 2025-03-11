@@ -10,12 +10,15 @@ from erp_core.models import WorkOrderStatus, MachineStatus
 from django.db import transaction
 from rest_framework.exceptions import ValidationError
 from rest_framework import serializers
+from django.utils import timezone
+from django.db.models import Q
+from django.core.exceptions import ValidationError as DjangoValidationError
 
 from .models import (
     WorkOrder, BOM, Machine, ManufacturingProcess,
     SubWorkOrder, BOMComponent, WorkOrderOutput,
     SubWorkOrderProcess, WorkOrderStatusChange,
-    WorkflowProcess, WorkOrderStatusTransition
+    WorkflowProcess, WorkOrderStatusTransition, ProcessConfig
 )
 from .serializers import (
     WorkOrderSerializer, BOMSerializer, MachineSerializer,
@@ -26,7 +29,8 @@ from .serializers import (
     SubWorkOrderCreateUpdateSerializer, SubWorkOrderProcessCreateUpdateSerializer,
     WorkOrderOutputCreateUpdateSerializer, BOMComponentCreateUpdateSerializer,
     WorkOrderStatusChangeSerializer, WorkflowProcessSerializer,
-    WorkflowProcessCreateUpdateSerializer
+    WorkflowProcessCreateUpdateSerializer, ProcessConfigSerializer,
+    ProcessConfigCreateUpdateSerializer
 )
 
 class WorkOrderViewSet(viewsets.ModelViewSet):
@@ -339,19 +343,18 @@ class WorkflowProcessViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = {
         'product': ['exact'],
-        'requires_machine': ['exact'],
-        'axis_count': ['exact', 'isnull'],
-        'raw_material': ['exact', 'isnull']
+        'stock_code': ['exact', 'icontains']
     }
-    search_fields = ['process_number', 'stock_code', 'tooling_requirements', 'quality_checks']
+    search_fields = ['stock_code', 'product__product_name', 'process__process_name']
     ordering_fields = ['sequence_order', 'created_at']
     ordering = ['product', 'sequence_order']
 
     def get_queryset(self):
         return WorkflowProcess.objects.select_related(
             'product',
-            'process',
-            'raw_material'
+            'process'
+        ).prefetch_related(
+            'process_configs'
         ).all()
 
     def get_serializer_class(self):
@@ -364,6 +367,16 @@ class WorkflowProcessViewSet(viewsets.ModelViewSet):
 
     def perform_update(self, serializer):
         serializer.save()
+        
+    @action(detail=True, methods=['get'])
+    def configs(self, request, pk=None):
+        """
+        Get all process configurations for a workflow process
+        """
+        workflow_process = self.get_object()
+        configs = ProcessConfig.objects.filter(workflow_process=workflow_process)
+        serializer = ProcessConfigSerializer(configs, many=True)
+        return Response(serializer.data)
 
 class ManufacturingProcessViewSet(viewsets.ModelViewSet):
     queryset = ManufacturingProcess.objects.all()
@@ -462,16 +475,17 @@ class SubWorkOrderViewSet(viewsets.ModelViewSet):
 class SubWorkOrderProcessViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter]
-    filterset_fields = ['sub_work_order', 'machine', 'status', 'operator']
+    filterset_fields = ['sub_work_order', 'workflow_process', 'process_config', 'machine', 'status', 'operator']
     search_fields = ['notes']
 
     def get_queryset(self):
         return SubWorkOrderProcess.objects.select_related(
             'sub_work_order',
-            'process',
+            'workflow_process',
+            'process_config',
             'machine',
             'operator'
-        ).order_by('sub_work_order', 'sequence_order')
+        ).all()
 
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
@@ -577,6 +591,52 @@ class WorkOrderOutputViewSet(viewsets.ModelViewSet):
         if isinstance(exc, ValidationError):
             return Response(
                 {'error': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().handle_exception(exc)
+
+class ProcessConfigViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = {
+        'workflow_process': ['exact'],
+        'machine_type': ['exact'],
+        'axis_count': ['exact', 'isnull'],
+        'raw_material': ['exact', 'isnull']
+    }
+    search_fields = ['tooling_requirements', 'quality_checks', 'notes']
+    ordering_fields = ['created_at', 'estimated_duration_minutes']
+    ordering = ['workflow_process', 'created_at']
+
+    def get_queryset(self):
+        return ProcessConfig.objects.select_related(
+            'workflow_process',
+            'workflow_process__product',
+            'workflow_process__process',
+            'raw_material'
+        ).all()
+
+    def get_serializer_class(self):
+        if self.action in ['create', 'update', 'partial_update']:
+            return ProcessConfigCreateUpdateSerializer
+        return ProcessConfigSerializer
+
+    def perform_create(self, serializer):
+        try:
+            serializer.save()
+        except DjangoValidationError as e:
+            raise ValidationError(detail=str(e))
+
+    def perform_update(self, serializer):
+        try:
+            serializer.save()
+        except DjangoValidationError as e:
+            raise ValidationError(detail=str(e))
+
+    def handle_exception(self, exc):
+        if isinstance(exc, DjangoValidationError):
+            return Response(
+                {"detail": str(exc)},
                 status=status.HTTP_400_BAD_REQUEST
             )
         return super().handle_exception(exc)

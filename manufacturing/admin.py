@@ -1,7 +1,8 @@
 from django.contrib import admin
 from .models import (
     WorkOrder, Machine, BOM, BOMComponent, ManufacturingProcess, 
-    SubWorkOrder, WorkOrderOutput, SubWorkOrderProcess, WorkflowProcess
+    SubWorkOrder, WorkOrderOutput, SubWorkOrderProcess, WorkflowProcess,
+    ProcessConfig
 )
 
 @admin.register(WorkOrder)
@@ -48,31 +49,18 @@ class BOMComponentAdmin(admin.ModelAdmin):
 
 @admin.register(WorkflowProcess)
 class WorkflowProcessAdmin(admin.ModelAdmin):
-    list_display = ('process_number', 'product', 'process', 'stock_code', 'sequence_order')
-    list_filter = (
-        'process__machine_type',
-        'axis_count',
-        'product__product_type'
-    )
+    list_display = ('product', 'process', 'stock_code', 'sequence_order')
+    list_filter = ('product__product_type',)
     search_fields = (
-        'process_number',
         'stock_code',
         'product__product_name',
         'process__process_name'
     )
     ordering = ('product', 'sequence_order')
     fieldsets = (
-        ('Basic Information', {
-            'fields': ('product', 'process', 'process_number', 'stock_code', 'sequence_order')
+        (None, {
+            'fields': ('product', 'process', 'stock_code', 'sequence_order')
         }),
-        ('Machine Requirements', {
-            'fields': ('axis_count',),
-            'classes': ('collapse',)
-        }),
-        ('Process Details', {
-            'fields': ('raw_material', 'estimated_duration_minutes', 'tooling_requirements', 'quality_checks'),
-            'classes': ('collapse',)
-        })
     )
 
 @admin.register(ManufacturingProcess)
@@ -112,7 +100,7 @@ class WorkOrderOutputAdmin(admin.ModelAdmin):
 
 @admin.register(SubWorkOrderProcess)
 class SubWorkOrderProcessAdmin(admin.ModelAdmin):
-    list_display = ('sub_work_order', 'workflow_process', 'machine', 'status', 'sequence_order')
+    list_display = ('sub_work_order', 'workflow_process', 'process_config', 'machine', 'status', 'sequence_order')
     list_filter = ('status', 'machine__machine_type')
     search_fields = (
         'sub_work_order__parent_work_order__order_number',
@@ -121,19 +109,40 @@ class SubWorkOrderProcessAdmin(admin.ModelAdmin):
     )
     ordering = ('sequence_order',)
     fieldsets = (
-        ('Basic Information', {
-            'fields': ('sub_work_order', 'workflow_process', 'sequence_order')
+        (None, {
+            'fields': ('sub_work_order', 'workflow_process', 'process_config', 'sequence_order')
         }),
-        ('Machine Assignment', {
-            'fields': ('machine', 'operator'),
-            'classes': ('collapse',)
+        ('Machine & Operator', {
+            'fields': ('machine', 'operator', 'setup_time_minutes')
         }),
-        ('Time Tracking', {
-            'fields': ('planned_duration_minutes', 'actual_duration_minutes', 'setup_time_minutes'),
-            'classes': ('collapse',)
+        ('Timing', {
+            'fields': ('planned_duration_minutes', 'actual_duration_minutes', 'start_time', 'end_time')
         }),
         ('Status', {
-            'fields': ('status', 'start_time', 'end_time', 'notes'),
-            'classes': ('collapse',)
+            'fields': ('status', 'notes')
         })
+    )
+
+@admin.register(ProcessConfig)
+class ProcessConfigAdmin(admin.ModelAdmin):
+    list_display = ('workflow_process', 'machine_type', 'axis_count', 'estimated_duration_minutes')
+    list_filter = ('machine_type', 'axis_count')
+    search_fields = (
+        'workflow_process__product__product_name',
+        'workflow_process__process__process_name',
+        'workflow_process__stock_code',
+        'notes',
+        'tooling_requirements'
+    )
+    raw_id_fields = ('workflow_process', 'raw_material')
+    fieldsets = (
+        (None, {
+            'fields': ('workflow_process', 'raw_material')
+        }),
+        ('Machine Requirements', {
+            'fields': ('machine_type', 'axis_count', 'setup_time_minutes')
+        }),
+        ('Process Details', {
+            'fields': ('estimated_duration_minutes', 'tooling_requirements', 'quality_checks', 'notes')
+        }),
     )
