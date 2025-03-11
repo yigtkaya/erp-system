@@ -34,13 +34,42 @@ class Command(BaseCommand):
 
     def clean_customer_code(self, code):
         """Clean customer code to meet validation requirements"""
-        # Remove any non-alphanumeric characters except periods
-        cleaned = ''.join(c for c in code if c.isalnum() or c == '.')
+        # Replace commas with dots
+        cleaned = code.replace(',', '.')
+        # Remove any other non-alphanumeric characters except periods
+        cleaned = ''.join(c for c in cleaned if c.isalnum() or c == '.')
         # Ensure it's at least 4 characters
         if len(cleaned) < 4:
             # Pad with zeros if needed
             cleaned = cleaned.zfill(4)
         return cleaned
+
+    def create_missing_product(self, product_code):
+        """Create a new product with default values"""
+        try:
+            # Get or create MAMUL category as default
+            mamul_category, _ = InventoryCategory.objects.get_or_create(
+                name='MAMUL',
+                defaults={'description': 'Finished Products'}
+            )
+
+            # Create the product with default values
+            product = Product.objects.create(
+                product_code=product_code,
+                product_name=f"Product {product_code}",  # Default name
+                product_type=ProductType.MONTAGED,  # Default type
+                inventory_category=mamul_category,
+                current_stock=0
+            )
+            self.stdout.write(
+                self.style.SUCCESS(f"Created new product: {product_code}")
+            )
+            return product
+        except Exception as e:
+            self.stderr.write(
+                self.style.ERROR(f"Failed to create product {product_code}: {str(e)}")
+            )
+            raise
 
     def handle(self, *args, **options):
         csv_file = options['csv_file']
@@ -51,37 +80,44 @@ class Command(BaseCommand):
                 
                 # Group orders by order number
                 orders_by_number = defaultdict(list)
+                total_lines = 0
+                empty_lines = 0
+                order_details = defaultdict(lambda: {'count': 0, 'products': set(), 'dates': set()})
+                
                 for row in reader:
+                    total_lines += 1
                     # Skip empty rows
                     if not any(row.values()):
+                        empty_lines += 1
                         continue
                     orders_by_number[row['order_number']].append(row)
+                    # Collect details about each order
+                    order_num = row['order_number']
+                    order_details[order_num]['count'] += 1
+                    order_details[order_num]['products'].add(row['product'])
+                    order_details[order_num]['dates'].add(row['deadline_date'])
                 
                 # Store the total number of orders for progress reporting
                 total_orders = len(orders_by_number)
                 processed_orders = 0
-                skipped_orders = {}  # To keep track of skipped orders and their missing products
+                processed_lines = 0
+                created_products = []  # To keep track of newly created products
+                orders_with_multiple_lines = {}  # Track orders with multiple lines
                 
                 with transaction.atomic():
                     for order_number, order_items in orders_by_number.items():
                         try:
-                            # First verify all products exist
-                            missing_products = []
-                            for item in order_items:
-                                try:
-                                    Product.objects.get(product_code=item['product'])
-                                except Product.DoesNotExist:
-                                    missing_products.append(item['product'])
+                            if len(order_items) > 1:
+                                orders_with_multiple_lines[order_number] = len(order_items)
                             
-                            # If any products are missing, skip the entire order
-                            if missing_products:
-                                skipped_orders[order_number] = missing_products
-                                self.stderr.write(
-                                    self.style.WARNING(
-                                        f"Skipping order {order_number} - missing products: {', '.join(missing_products)}"
-                                    )
-                                )
-                                continue
+                            # First check and create any missing products
+                            for item in order_items:
+                                product_code = item['product']
+                                try:
+                                    Product.objects.get(product_code=product_code)
+                                except Product.DoesNotExist:
+                                    self.create_missing_product(product_code)
+                                    created_products.append(product_code)
                             
                             # Get the first item for order details
                             first_item = order_items[0]
@@ -97,7 +133,7 @@ class Command(BaseCommand):
                                 }
                             )
                             
-                            # Create order only if all products exist
+                            # Create order
                             order = SalesOrder.objects.create(
                                 order_number=order_number,
                                 customer=customer,
@@ -118,6 +154,7 @@ class Command(BaseCommand):
                                     receiving_date=self.parse_date(item['receiving_date']),
                                     fulfilled_quantity=0
                                 )
+                                processed_lines += 1
                             
                             processed_orders += 1
                             self.stdout.write(f"Processed {processed_orders}/{total_orders} orders", ending='\r')
@@ -130,17 +167,32 @@ class Command(BaseCommand):
                             )
                             continue
                 
-                # Print summary of skipped orders
-                if skipped_orders:
-                    self.stderr.write("\nThe following orders were skipped due to missing products:")
-                    for order_num, missing_prods in skipped_orders.items():
-                        self.stderr.write(f"Order {order_num}:")
-                        for prod in missing_prods:
-                            self.stderr.write(f"  - Missing product: {prod}")
+                # Print summary of created products
+                if created_products:
+                    self.stdout.write("\nThe following products were automatically created:")
+                    for product_code in created_products:
+                        self.stdout.write(f"  - Created product: {product_code}")
+                
+                # Print detailed summary of orders with multiple lines
+                if orders_with_multiple_lines:
+                    self.stdout.write("\nDetailed breakdown of orders with multiple lines:")
+                    for order_num in sorted(orders_with_multiple_lines.keys()):
+                        details = order_details[order_num]
+                        self.stdout.write(
+                            f"\nOrder {order_num}:"
+                            f"\n  - Number of lines: {details['count']}"
+                            f"\n  - Products: {', '.join(sorted(details['products']))}"
+                            f"\n  - Different delivery dates: {', '.join(sorted(details['dates']))}"
+                        )
                 
                 self.stdout.write(self.style.SUCCESS(
-                    f'\nSuccessfully processed {processed_orders} orders. '
-                    f'Skipped {len(skipped_orders)} orders due to missing products.'
+                    f'\nProcessing Summary:'
+                    f'\n- Total CSV lines: {total_lines}'
+                    f'\n- Empty lines skipped: {empty_lines}'
+                    f'\n- Valid lines processed: {processed_lines}'
+                    f'\n- Unique orders processed: {processed_orders}'
+                    f'\n- New products created: {len(created_products)}'
+                    f'\n- Orders with multiple lines: {len(orders_with_multiple_lines)}'
                 ))
                 
         except FileNotFoundError:

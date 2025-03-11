@@ -1,7 +1,7 @@
 from django.db import models
 from django.core.exceptions import ValidationError
 from erp_core.models import BaseModel, User, Customer, ProductType, MaterialType
-from django.core.validators import MinValueValidator
+from django.core.validators import MinValueValidator, MaxValueValidator
 import pathlib 
 from django.db.models import Sum
 from django.apps import apps
@@ -43,7 +43,14 @@ class Product(BaseModel):
     product_name = models.CharField(max_length=100)
     project_name = models.CharField(max_length=100, null=True, blank=True)
     product_type = models.CharField(max_length=20, choices=ProductType.choices)
-    multicode = models.IntegerField(null=True, blank=True)
+    multicode = models.IntegerField(
+        null=True, 
+        blank=True,
+        validators=[
+            MinValueValidator(-2147483648),
+            MaxValueValidator(2147483647)
+        ]
+    )
     description = models.TextField(blank=True, null=True)
     current_stock = models.IntegerField(default=0)
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, null=True, blank=True)
