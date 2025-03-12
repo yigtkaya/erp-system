@@ -28,8 +28,7 @@ class ManufacturingProcessSerializer(serializers.ModelSerializer):
         model = ManufacturingProcess
         fields = [
             'id', 'process_code', 'process_name',
-            'standard_time_minutes', 'machine_type',
-            'approved_by', 'created_at', 'modified_at'
+            'created_at', 'modified_at'
         ]
 
 class WorkflowProcessSerializer(serializers.ModelSerializer):
@@ -100,36 +99,85 @@ class WorkflowProcessCreateUpdateSerializer(serializers.ModelSerializer):
         return data
 
 class ProcessConfigSerializer(serializers.ModelSerializer):
-    raw_material_details = RawMaterialSerializer(source='raw_material', read_only=True)
     workflow_process_details = WorkflowProcessSerializer(source='workflow_process', read_only=True)
-    machine_type_display = serializers.CharField(source='get_machine_type_display', read_only=True)
-    axis_count_display = serializers.CharField(source='get_axis_count_display', read_only=True)
+    cycle_time = serializers.FloatField(source='get_cycle_time', read_only=True)
+    tool_details = serializers.SerializerMethodField()
+    control_gauge_details = serializers.SerializerMethodField()
+    fixture_details = serializers.SerializerMethodField()
 
     class Meta:
         model = ProcessConfig
         fields = [
             'id', 'workflow_process', 'workflow_process_details',
-            'raw_material', 'raw_material_details',
-            'axis_count', 'axis_count_display',
-            'estimated_duration_minutes',
-            'tooling_requirements', 'quality_checks',
-            'machine_type', 'machine_type_display',
-            'setup_time_minutes', 'notes',
+            'tool', 'tool_details',
+            'control_gauge', 'control_gauge_details',
+            'fixture', 'fixture_details',
+            'axis_count', 'machine_time', 'setup_time', 'net_time',
+            'number_of_bindings', 'cycle_time',
             'created_at', 'modified_at'
         ]
+
+    def get_tool_details(self, obj):
+        if obj.tool:
+            return {
+                'stock_code': obj.tool.stock_code,
+                'name': obj.tool.tool_type,
+                'material': obj.tool.tool_material,
+                'diameter': obj.tool.tool_diameter,
+                'length': obj.tool.tool_length,
+                'width': obj.tool.tool_width,
+                'height': obj.tool.tool_height,
+                'angle': obj.tool.tool_angle,
+                'radius': obj.tool.tool_radius,
+                'connection_diameter': obj.tool.tool_connection_diameter,
+                'status': obj.tool.status
+            }
+        return None
+
+    def get_control_gauge_details(self, obj):
+        if obj.control_gauge:
+            return {
+                'stock_code': obj.control_gauge.stock_code,
+                'name': obj.control_gauge.stock_name,
+                'type': obj.control_gauge.stock_type,
+                'description': obj.control_gauge.description
+            }
+        return None
+
+    def get_fixture_details(self, obj):
+        if obj.fixture:
+            return {
+                'code': obj.fixture.code,
+                'name': obj.fixture.name,
+                'status': obj.fixture.status
+            }
+        return None
 
 class ProcessConfigCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = ProcessConfig
         fields = [
-            'workflow_process', 'raw_material',
-            'axis_count', 'estimated_duration_minutes',
-            'tooling_requirements', 'quality_checks',
-            'machine_type', 'setup_time_minutes', 'notes'
+            'workflow_process', 'tool', 'control_gauge',
+            'fixture', 'axis_count', 'machine_time',
+            'setup_time', 'net_time', 'number_of_bindings'
         ]
 
     def validate(self, data):
-        # Add any validation logic here if needed
+        # Validate time fields are non-negative
+        for field in ['machine_time', 'setup_time', 'net_time']:
+            value = data.get(field)
+            if value is not None and value < 0:
+                raise serializers.ValidationError({
+                    field: f'{field.replace("_", " ").title()} cannot be negative'
+                })
+
+        # Validate number of bindings
+        bindings = data.get('number_of_bindings')
+        if bindings is not None and bindings < 0:
+            raise serializers.ValidationError({
+                'number_of_bindings': 'Number of bindings cannot be negative'
+            })
+
         return data
 
 class BOMComponentSerializer(serializers.ModelSerializer):
@@ -330,19 +378,10 @@ class SubWorkOrderProcessCreateUpdateSerializer(serializers.ModelSerializer):
         ]
 
     def validate(self, data):
-        # Validate machine compatibility with process
-        machine = data.get('machine')
+        # Ensure process_config belongs to the workflow_process if both are provided
         workflow_process = data.get('workflow_process')
         process_config = data.get('process_config')
-        
-        if machine and process_config and process_config.machine_type:
-            if machine.machine_type != process_config.machine_type:
-                raise serializers.ValidationError(
-                    f"Machine type {machine.machine_type} is not compatible with "
-                    f"required machine type {process_config.machine_type}"
-                )
                 
-        # Ensure process_config belongs to the workflow_process if both are provided
         if workflow_process and process_config and process_config.workflow_process != workflow_process:
             raise serializers.ValidationError(
                 "The selected process configuration does not belong to the selected workflow process"

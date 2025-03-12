@@ -13,6 +13,8 @@ router.register(r'raw-materials', views.RawMaterialViewSet)
 router.register(r'units', views.UnitOfMeasureViewSet)
 router.register(r'tools', views.ToolViewSet)
 router.register(r'holders', views.HolderViewSet)
+router.register(r'fixtures', views.FixtureViewSet)
+router.register(r'control-gauges', views.ControlGaugeViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),

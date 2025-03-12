@@ -82,14 +82,10 @@ class Machine(BaseModel):
 class ManufacturingProcess(BaseModel):
     process_code = models.CharField(max_length=50, unique=True)
     process_name = models.CharField(max_length=100)
-    standard_time_minutes = models.IntegerField()
-    machine_type = models.CharField(max_length=50, choices=MachineType.choices)
-    approved_by = models.ForeignKey(User, on_delete=models.PROTECT, null=True, blank=True, related_name='approved_processes')
 
     class Meta:
         indexes = [
             models.Index(fields=['process_code']),
-            models.Index(fields=['machine_type']),
         ]
 
     def __str__(self):
@@ -313,72 +309,120 @@ class ProcessConfig(BaseModel):
         related_name='process_configs',
         help_text="The workflow process this configuration belongs to"
     )
-    raw_material = models.ForeignKey(
-        'inventory.RawMaterial', 
-        on_delete=models.PROTECT, 
-        null=True, 
+    tool = models.ForeignKey(
+        'inventory.Tool',
+        on_delete=models.PROTECT,
+        null=True,
         blank=True,
-        help_text="Raw material required for this process"
+        to_field='stock_code',
+        help_text="Tool required for this process"
+    )
+    control_gauge = models.ForeignKey(
+        'inventory.ControlGauge',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        to_field='stock_code',
+        help_text="Control gauge required for quality checks in this process"
+    )
+    fixture = models.ForeignKey(
+        'inventory.Fixture',
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        to_field='code',
+        help_text="Fixture required for this process"
     )
     axis_count = models.CharField(
-        max_length=20,
+        max_length=20, 
         choices=AxisCount.choices,
-        help_text="Required machine axis count for this process",
-        blank=True,
-        null=True
-    )
-    estimated_duration_minutes = models.IntegerField(
-        blank=True, 
-        null=True,
-        help_text="Estimated time to complete this process in minutes"
-    )
-    tooling_requirements = models.TextField(
-        blank=True, 
-        null=True,
-        help_text="Tools and equipment required for this process"
-    )
-    quality_checks = models.TextField(
-        blank=True, 
-        null=True,
-        help_text="Quality control procedures for this process"
-    )
-    machine_type = models.CharField(
-        max_length=50, 
-        choices=MachineType.choices,
         blank=True,
         null=True,
-        help_text="Type of machine required for this process"
+        help_text="Type of machine axis required for this process"
     )
-    setup_time_minutes = models.IntegerField(
+    machine_time = models.IntegerField(
+        blank=True, 
+        null=True,
+        help_text="Time required to complete this process on the machine in minutes"
+    )
+    setup_time = models.IntegerField(
         blank=True, 
         null=True,
         help_text="Time required to set up the machine in minutes"
     )
-    notes = models.TextField(
+    net_time = models.IntegerField(
         blank=True, 
         null=True,
-        help_text="Additional notes or instructions for this process"
+        help_text="Net time required to complete this process in minutes"
     )
-
+    number_of_bindings = models.IntegerField(
+        blank=True, 
+        null=True,
+        help_text="Number of bindings required for this process"
+    )
+    
     class Meta:
         verbose_name = "Process Configuration"
         verbose_name_plural = "Process Configurations"
+        ordering = ['workflow_process', 'axis_count']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['workflow_process', 'axis_count'],
+                name='unique_process_machine_config'
+            )
+        ]
         indexes = [
             models.Index(fields=['workflow_process']),
-            models.Index(fields=['machine_type']),
+            models.Index(fields=['axis_count']),
+            models.Index(fields=['tool']),
+            models.Index(fields=['control_gauge']),
+            models.Index(fields=['fixture']),
         ]
 
     def clean(self):
         super().clean()
-        # Add validation logic if needed
-        pass
+        if self.machine_time and self.machine_time < 0:
+            raise ValidationError({'machine_time': 'Machine time cannot be negative'})
+            
+        if self.setup_time and self.setup_time < 0:
+            raise ValidationError({'setup_time': 'Setup time cannot be negative'})
+            
+        if self.net_time and self.net_time < 0:
+            raise ValidationError({'net_time': 'Net time cannot be negative'})
+            
+        if self.number_of_bindings and self.number_of_bindings < 0:
+            raise ValidationError({'number_of_bindings': 'Number of bindings cannot be negative'})
 
     def save(self, *args, **kwargs):
-        self.clean()
+        self.full_clean()
         super().save(*args, **kwargs)
 
+    def get_cycle_time(self):
+        """
+        Calculate cycle time in minutes based on the formula:
+        Machine Time + max(Setup Time, Net Time)
+        If number_of_bindings > 0, divide the result by number_of_bindings
+        """
+        if not self.machine_time:
+            return 0
+            
+        # Get the larger of setup_time and net_time
+        setup_or_net = max(
+            self.setup_time or 0,
+            self.net_time or 0
+        )
+        
+        # Calculate base cycle time
+        cycle_time = self.machine_time + setup_or_net
+        
+        # If there are bindings, divide by number of bindings
+        if self.number_of_bindings and self.number_of_bindings > 0:
+            cycle_time = cycle_time / self.number_of_bindings
+            
+        return cycle_time
+
     def __str__(self):
-        return f"Config for {self.workflow_process}"
+        return f"Config for {self.workflow_process} ({self.axis_count or 'No machine axis'})"
 
 class WorkOrderStatusTransition:
     """

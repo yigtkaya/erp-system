@@ -65,9 +65,8 @@ class WorkflowProcessAdmin(admin.ModelAdmin):
 
 @admin.register(ManufacturingProcess)
 class ManufacturingProcessAdmin(admin.ModelAdmin):
-    list_display = ('process_code', 'process_name', 'standard_time_minutes', 'machine_type')
+    list_display = ('process_code', 'process_name')
     search_fields = ('process_code', 'process_name')
-    list_filter = ('machine_type',)
     ordering = ('process_code',)
 
 @admin.register(SubWorkOrder)
@@ -125,24 +124,52 @@ class SubWorkOrderProcessAdmin(admin.ModelAdmin):
 
 @admin.register(ProcessConfig)
 class ProcessConfigAdmin(admin.ModelAdmin):
-    list_display = ('workflow_process', 'machine_type', 'axis_count', 'estimated_duration_minutes')
-    list_filter = ('machine_type', 'axis_count')
+    list_display = (
+        'workflow_process', 
+        'axis_count', 
+        'tool',
+        'control_gauge',
+        'fixture',
+        'get_cycle_time'
+    )
+    list_filter = (
+        'axis_count',
+        ('tool', admin.RelatedOnlyFieldListFilter),
+        ('control_gauge', admin.RelatedOnlyFieldListFilter),
+        ('fixture', admin.RelatedOnlyFieldListFilter),
+    )
     search_fields = (
         'workflow_process__product__product_name',
         'workflow_process__process__process_name',
         'workflow_process__stock_code',
-        'notes',
-        'tooling_requirements'
+        'tool__stock_code',
+        'control_gauge__stock_code',
+        'fixture__stock_code'
     )
-    raw_id_fields = ('workflow_process', 'raw_material')
+    raw_id_fields = ('workflow_process', 'tool', 'control_gauge', 'fixture')
     fieldsets = (
         (None, {
-            'fields': ('workflow_process', 'raw_material')
+            'fields': ('workflow_process',)
         }),
-        ('Machine Requirements', {
-            'fields': ('machine_type', 'axis_count', 'setup_time_minutes')
+        ('Equipment Requirements', {
+            'fields': (
+                'axis_count',
+                'tool',
+                'control_gauge',
+                'fixture',
+                'number_of_bindings'
+            )
         }),
-        ('Process Details', {
-            'fields': ('estimated_duration_minutes', 'tooling_requirements', 'quality_checks', 'notes')
-        }),
+        ('Time Requirements', {
+            'fields': (
+                'setup_time',
+                'machine_time',
+                'net_time'
+            ),
+            'description': 'All times are in minutes. Cycle time is calculated as: Machine Time + max(Setup Time, Net Time), divided by number of bindings if applicable.'
+        })
     )
+
+    def get_cycle_time(self, obj):
+        return f"{obj.get_cycle_time():.2f}"
+    get_cycle_time.short_description = 'Cycle Time (min)'

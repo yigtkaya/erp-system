@@ -7,6 +7,10 @@ from django.db.models import Sum
 from django.apps import apps
 from django.conf import settings
 
+class Status(models.TextChoices):
+    ACTIVE = 'AKTIF', 'Aktif'
+    INACTIVE = 'PASIF', 'Pasif'
+
 class InventoryCategory(models.Model):
     CATEGORY_CHOICES = [
         ('HAMMADDE', 'Hammadde'),  # Raw Materials and Standard Parts
@@ -350,3 +354,57 @@ class Holder(BaseModel):
 
     def __str__(self):
         return f"{self.stock_code} - {self.holder_type}"
+
+class Fixture(BaseModel):
+    code = models.CharField(max_length=50, primary_key=True)
+    name = models.TextField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
+
+    class Meta:
+        verbose_name = "Fixture"
+        verbose_name_plural = "Fixtures"
+        indexes = [
+            models.Index(fields=['name']),
+        ]
+
+    def __str__(self):
+        return f"{self.code} - {self.name}"
+
+class ControlGauge(BaseModel):
+    GAUGE_STATUS_CHOICES = [
+        ('UYGUN', 'Uygun'),
+        ('KULLANILMIYOR', 'Kullanılmıyor'),
+        ('HURDA', 'Hurda'),
+        ('KAYIP', 'Kayıp'),
+    ]
+
+    stock_code = models.CharField(max_length=50, primary_key=True)
+    stock_name = models.CharField(max_length=100)
+    stock_type = models.CharField(max_length=50, null=True, blank=True)
+    serial_number = models.CharField(max_length=100, null=True, blank=True)
+    brand = models.CharField(max_length=100, null=True, blank=True)
+    model = models.CharField(max_length=100, null=True, blank=True)
+    measuring_range = models.CharField(max_length=100, null=True, blank=True)
+    resolution = models.CharField(max_length=50, null=True, blank=True)
+    calibration_made_by = models.CharField(max_length=100, null=True, blank=True)
+    calibration_date = models.DateField(null=True, blank=True)
+    calibration_per_year = models.CharField(max_length=50, default='1 / Yıl')
+    upcoming_calibration_date = models.DateField(null=True, blank=True)
+    certificate_no = models.CharField(max_length=50, null=True, blank=True)
+    status = models.CharField(max_length=20, choices=GAUGE_STATUS_CHOICES, default='KULLANILMIYOR')
+    current_location = models.CharField(max_length=100, null=True, blank=True)
+    scrap_lost_date = models.DateField(null=True, blank=True)
+    description = models.TextField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Control Gauge"
+        verbose_name_plural = "Control Gauges"
+        indexes = [
+            models.Index(fields=['stock_name']),
+            models.Index(fields=['status']),
+            models.Index(fields=['calibration_date']),
+        ]
+
+    def __str__(self):
+        return f"{self.stock_code} - {self.stock_name}"
+

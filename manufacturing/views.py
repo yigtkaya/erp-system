@@ -383,7 +383,6 @@ class ManufacturingProcessViewSet(viewsets.ModelViewSet):
     serializer_class = ManufacturingProcessSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter]
-    filterset_fields = ['machine_type']
     search_fields = ['process_code', 'process_name']
     
     def handle_exception(self, exc):
@@ -600,12 +599,13 @@ class ProcessConfigViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = {
         'workflow_process': ['exact'],
-        'machine_type': ['exact'],
         'axis_count': ['exact', 'isnull'],
-        'raw_material': ['exact', 'isnull']
+        'tool': ['exact', 'isnull'],
+        'control_gauge': ['exact', 'isnull'],
+        'fixture': ['exact', 'isnull']
     }
-    search_fields = ['tooling_requirements', 'quality_checks', 'notes']
-    ordering_fields = ['created_at', 'estimated_duration_minutes']
+    search_fields = ['workflow_process__stock_code', 'workflow_process__process__process_name']
+    ordering_fields = ['created_at']
     ordering = ['workflow_process', 'created_at']
 
     def get_queryset(self):
@@ -613,7 +613,9 @@ class ProcessConfigViewSet(viewsets.ModelViewSet):
             'workflow_process',
             'workflow_process__product',
             'workflow_process__process',
-            'raw_material'
+            'tool',
+            'control_gauge',
+            'fixture'
         ).all()
 
     def get_serializer_class(self):
@@ -640,3 +642,25 @@ class ProcessConfigViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         return super().handle_exception(exc)
+
+class SubWorkOrderProcessCreateUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SubWorkOrderProcess
+        fields = [
+            'sub_work_order', 'workflow_process', 'process_config',
+            'machine', 'sequence_order', 'planned_duration_minutes',
+            'status', 'start_time', 'end_time', 'operator',
+            'setup_time_minutes', 'notes'
+        ]
+
+    def validate(self, data):
+        # Ensure process_config belongs to the workflow_process if both are provided
+        workflow_process = data.get('workflow_process')
+        process_config = data.get('process_config')
+                
+        if workflow_process and process_config and process_config.workflow_process != workflow_process:
+            raise serializers.ValidationError(
+                "The selected process configuration does not belong to the selected workflow process"
+            )
+                
+        return data

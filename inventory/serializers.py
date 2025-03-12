@@ -2,7 +2,7 @@ from rest_framework import serializers
 from .models import (
     InventoryCategory, UnitOfMeasure, Product,
     TechnicalDrawing, RawMaterial, InventoryTransaction,
-    Tool, Holder
+    Tool, Holder, Fixture, ControlGauge
 )
 from erp_core.serializers import UserSerializer, CustomerSerializer
 from django.core.exceptions import ObjectDoesNotExist
@@ -130,5 +130,18 @@ class ToolSerializer(serializers.ModelSerializer):
 class HolderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Holder
+        fields = '__all__'
+        read_only_fields = ('updated_at',) 
+
+
+class FixtureSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Fixture
+        fields = '__all__'
+        read_only_fields = ('updated_at',) 
+
+class ControlGaugeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ControlGauge
         fields = '__all__'
         read_only_fields = ('updated_at',) 

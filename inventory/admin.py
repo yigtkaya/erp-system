@@ -1,5 +1,8 @@
 from django.contrib import admin
-from .models import Product, RawMaterial, InventoryTransaction, InventoryCategory, UnitOfMeasure, TechnicalDrawing, Tool, Holder
+from .models import (
+    Product, RawMaterial, InventoryTransaction, InventoryCategory, 
+    UnitOfMeasure, TechnicalDrawing, Tool, Holder, Fixture, ControlGauge
+)
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
@@ -102,4 +105,72 @@ class HolderAdmin(admin.ModelAdmin):
             'fields': ('updated_at',),
             'classes': ('collapse',)
         }),
+    )
+
+@admin.register(Fixture)
+class FixtureAdmin(admin.ModelAdmin):
+    list_display = ('code', 'name', 'status')
+    list_filter = ('status',)
+    search_fields = ('code', 'name')
+    ordering = ('code',)
+
+@admin.register(ControlGauge)
+class ControlGaugeAdmin(admin.ModelAdmin):
+    list_display = (
+        'stock_code', 
+        'stock_name', 
+        'stock_type',
+        'status',
+        'current_location',
+        'calibration_date',
+        'upcoming_calibration_date'
+    )
+    list_filter = (
+        'status', 
+        'stock_type',
+        'current_location',
+        'calibration_made_by'
+    )
+    search_fields = (
+        'stock_code', 
+        'stock_name', 
+        'serial_number',
+        'certificate_no'
+    )
+    ordering = ('stock_code',)
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': (
+                'stock_code', 
+                'stock_name', 
+                'stock_type',
+                'description'
+            )
+        }),
+        ('Specifications', {
+            'fields': (
+                'brand',
+                'model',
+                'serial_number',
+                'measuring_range',
+                'resolution'
+            )
+        }),
+        ('Calibration Information', {
+            'fields': (
+                'calibration_made_by',
+                'calibration_date',
+                'calibration_per_year',
+                'upcoming_calibration_date',
+                'certificate_no'
+            )
+        }),
+        ('Status and Location', {
+            'fields': (
+                'status',
+                'current_location',
+                'scrap_lost_date'
+            )
+        })
     )

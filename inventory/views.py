@@ -14,14 +14,14 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from .models import (
     InventoryCategory, UnitOfMeasure, Product,
     TechnicalDrawing, RawMaterial, InventoryTransaction, UnitOfMeasure,
-    Tool, Holder
+    Tool, Holder, Fixture, ControlGauge
 )
 from .serializers import (
     InventoryCategorySerializer, UnitOfMeasureSerializer,
     ProductSerializer, TechnicalDrawingDetailSerializer,
     TechnicalDrawingListSerializer, RawMaterialSerializer, 
     InventoryTransactionSerializer, UnitOfMeasureSerializer,
-    ToolSerializer, HolderSerializer
+    ToolSerializer, HolderSerializer, FixtureSerializer, ControlGaugeSerializer
 )
 
 class UnitOfMeasureViewSet(viewsets.ReadOnlyModelViewSet):
@@ -551,3 +551,13 @@ class HolderViewSet(viewsets.ModelViewSet):
         if row is not None and column is not None:
             queryset = queryset.filter(row=row, column=column)
         return queryset
+
+class FixtureViewSet(viewsets.ModelViewSet):
+    queryset = Fixture.objects.all()
+    serializer_class = FixtureSerializer
+    permission_classes = [IsAuthenticated]
+
+class ControlGaugeViewSet(viewsets.ModelViewSet):
+    queryset = ControlGauge.objects.all()
+    serializer_class = ControlGaugeSerializer
+    permission_classes = [IsAuthenticated]
