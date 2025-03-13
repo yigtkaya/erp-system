@@ -143,10 +143,6 @@ class Shipping(BaseModel):
             })
 
     def save(self, *args, **kwargs):
-        if not self.shipping_no:
-            from datetime import datetime
-            timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
-            self.shipping_no = f"SHP-{self.order.order_number}-{timestamp}"
         self.clean()
         is_new = self._state.adding
         super().save(*args, **kwargs)

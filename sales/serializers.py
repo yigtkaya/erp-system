@@ -260,7 +260,6 @@ class ShippingSerializer(serializers.ModelSerializer):
             'order', 'order_item', 'product_details',
             'quantity', 'package_number', 'shipping_note'
         ]
-        read_only_fields = ['shipping_no']
 
     def create(self, validated_data):
         with atomic():
@@ -327,22 +326,11 @@ class SalesOrderSerializer(serializers.ModelSerializer):
         return super().to_internal_value(data)
 
     def validate(self, data):
-        # Handle both list and dict formats
-        if isinstance(data, list):
-            items_data = data
-            data = {'items': items_data}
-        elif 'items' not in data:
-            raise ValidationError("Order must contain at least one item")
-        
-        # Rest of validation logic remains the same
-        items_data = data.get('items', [])
-        if len(items_data) == 0:
-            raise ValidationError("Order must contain at least one item")
-            
-        for item in items_data:
-            if 'product' not in item:
-                raise ValidationError("Each item must specify a product")
-                
+        # Only validate items during creation, not updates
+        if self.instance is None:  # Creation case
+            items = data.get('items', [])
+            if len(items) == 0:
+                raise ValidationError("Order must contain at least one item")
         return data
 
     def create(self, validated_data):
@@ -355,14 +343,16 @@ class SalesOrderSerializer(serializers.ModelSerializer):
         return sales_order
 
     def update(self, instance, validated_data):
-        items_data = validated_data.pop('items', None)
+        # Change from pop() to get() to maintain existing items if not provided
+        items_data = validated_data.get('items')
         
         # Update order fields
         for attr, value in validated_data.items():
-            setattr(instance, attr, value)
+            if attr != 'items':  # Skip items field here
+                setattr(instance, attr, value)
         instance.save()
 
-        # Handle items update
+        # Only update items if they're provided in the request
         if items_data is not None:
             self.update_items(instance, items_data)
 
@@ -398,3 +388,150 @@ class SalesOrderSerializer(serializers.ModelSerializer):
             # Refresh instance and update status
             instance.refresh_from_db()
             instance.update_order_status()
+
+
+class BatchShippingUpdateSerializer(serializers.Serializer):
+    """
+    Serializer for batch updating multiple Shipping records
+    """
+    items = serializers.ListField(
+        child=serializers.DictField(),
+        min_length=1,
+        required=True
+    )
+
+    def validate_items(self, items):
+        if not items:
+            raise serializers.ValidationError("At least one shipping record must be provided")
+        
+        for i, item in enumerate(items):
+            if 'id' not in item:
+                raise serializers.ValidationError(f"Item at position {i} is missing 'id' field")
+            if 'shipping_no' not in item:
+                raise serializers.ValidationError(f"Item at position {i} is missing 'shipping_no' field")
+        
+        return items
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        items_data = validated_data.get('items', [])
+        updated_shipments = []
+        errors = {}
+
+        for item_data in items_data:
+            try:
+                shipment = Shipping.objects.get(
+                    shipping_no=item_data['shipping_no'],
+                    id=item_data['id']
+                )
+                
+                serializer = ShippingSerializer(
+                    shipment,
+                    data=item_data,
+                    partial=True,
+                    context=self.context
+                )
+                
+                if serializer.is_valid():
+                    updated_shipment = serializer.save()
+                    updated_shipments.append(updated_shipment)
+                else:
+                    errors[item_data['shipping_no']] = serializer.errors
+            except Shipping.DoesNotExist:
+                errors[item_data['shipping_no']] = "Shipping not found"
+        
+        if errors:
+            raise serializers.ValidationError(errors)
+            
+        return {'updated_shipments': updated_shipments}
+
+
+class BatchOrderShipmentUpdateSerializer(serializers.Serializer):
+    """
+    Serializer for batch updating multiple Shipping records within a sale order
+    """
+    shipments = serializers.ListField(
+        child=serializers.DictField(
+            child=serializers.CharField(required=False),
+            allow_empty=False
+        ),
+        required=True,
+        allow_empty=False
+    )
+
+    def validate_shipments(self, shipments):
+        validated_shipments = []
+        for item in shipments:
+            if not isinstance(item, dict):
+                raise serializers.ValidationError("Each shipment must be a dictionary")
+            
+            if 'shipping_no' not in item:
+                raise serializers.ValidationError("shipping_no is required for each shipment")
+
+            # Validate required fields
+            required_fields = {'shipping_no', 'quantity', 'shipping_date'}
+            missing_fields = required_fields - set(item.keys())
+            if missing_fields:
+                raise serializers.ValidationError(f"Missing required fields: {missing_fields}")
+
+            # Validate shipping exists and belongs to the order
+            try:
+                shipping = Shipping.objects.get(shipping_no=item['shipping_no'])
+                if shipping.order.id != self.context['order_id']:
+                    raise serializers.ValidationError(
+                        f"Shipping {item['shipping_no']} does not belong to this order"
+                    )
+            except Shipping.DoesNotExist:
+                raise serializers.ValidationError(
+                    f"Shipping with number {item['shipping_no']} not found"
+                )
+
+            # Validate quantity
+            try:
+                quantity = int(item['quantity'])
+                if quantity <= 0:
+                    raise serializers.ValidationError("Quantity must be positive")
+            except (ValueError, TypeError):
+                raise serializers.ValidationError("Quantity must be a valid integer")
+
+            # Validate shipping date
+            try:
+                shipping_date = parse(item['shipping_date']).date()
+            except (ValueError, TypeError):
+                raise serializers.ValidationError(
+                    "shipping_date must be a valid date in YYYY-MM-DD format"
+                )
+
+            validated_shipments.append({
+                'shipping': shipping,
+                'quantity': quantity,
+                'shipping_date': shipping_date,
+                'shipping_note': item.get('shipping_note', '')
+            })
+
+        return validated_shipments
+
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        updated_shipments = []
+        for shipment_data in validated_data['shipments']:
+            shipping = shipment_data['shipping']
+            
+            # Update shipping
+            shipping.quantity = shipment_data['quantity']
+            shipping.shipping_date = shipment_data['shipping_date']
+            if shipment_data.get('shipping_note'):
+                shipping.shipping_note = shipment_data['shipping_note']
+            
+            shipping.save()
+            
+            # Update order item's fulfilled quantity
+            shipping.order_item.update_fulfilled_quantity()
+            shipping.order_item.save()
+            
+            # Update order status
+            shipping.order.update_order_status()
+            
+            updated_shipments.append(shipping)
+
+        return updated_shipments

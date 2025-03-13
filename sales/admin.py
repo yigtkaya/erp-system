@@ -20,4 +20,3 @@ class ShippingAdmin(admin.ModelAdmin):
     list_display = ['shipping_no', 'order', 'shipping_date', 'quantity', 'package_number']
     list_filter = ['shipping_date']
     search_fields = ['shipping_no', 'order__order_number']
-    readonly_fields = ['shipping_no']

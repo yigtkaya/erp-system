@@ -14,7 +14,8 @@ from .models import SalesOrder, SalesOrderItem, Shipping
 from .serializers import (
     SalesOrderSerializer, SalesOrderItemSerializer,
     ShippingSerializer, BatchSalesOrderItemUpdateSerializer,
-    BatchSalesOrderItemCreateSerializer
+    BatchSalesOrderItemCreateSerializer, BatchShippingUpdateSerializer,
+    BatchOrderShipmentUpdateSerializer
 )
 from erp_core.permissions import IsAdminUser, HasDepartmentPermission
 
@@ -284,12 +285,26 @@ class ShippingViewSet(viewsets.ModelViewSet):
     serializer_class = ShippingSerializer
     permission_classes = [IsAuthenticated]
     lookup_field = 'shipping_no'
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']
 
     def get_queryset(self):
-        order_id = self.kwargs.get('order_pk')
-        if order_id:
-            return Shipping.objects.filter(order_id=order_id)
-        return Shipping.objects.none()
+        """
+        Get the queryset filtered by order if order_pk is provided
+        """
+        queryset = super().get_queryset()
+        order_pk = self.kwargs.get('order_pk')
+        if order_pk is not None:
+            queryset = queryset.filter(order_id=order_pk)
+        return queryset
+
+    def get_serializer_context(self):
+        """
+        Extra context provided to the serializer class.
+        """
+        context = super().get_serializer_context()
+        if 'order_pk' in self.kwargs:
+            context['order_id'] = self.kwargs['order_pk']
+        return context
 
     def perform_create(self, serializer):
         try:
@@ -368,6 +383,95 @@ class ShippingViewSet(viewsets.ModelViewSet):
                 "on_time_deliveries": on_time_deliveries
             }
         })
+
+    @swagger_auto_schema(
+        operation_description="Batch update shipments for a specific sales order",
+        request_body=BatchOrderShipmentUpdateSerializer,
+        responses={
+            200: openapi.Response(
+                description="Shipments updated successfully",
+                schema=ShippingSerializer(many=True)
+            ),
+            400: "Validation error",
+            404: "Order not found"
+        },
+        tags=['Shipments']
+    )
+    @action(detail=False, methods=['patch'], url_path='batch-update')
+    def batch_update(self, request, order_pk=None):
+        """
+        Batch update shipments for a specific sales order
+        """
+        try:
+            if not order_pk:
+                return Response(
+                    {"detail": "Order ID is required"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            try:
+                order = SalesOrder.objects.get(pk=order_pk)
+            except SalesOrder.DoesNotExist:
+                return Response(
+                    {"detail": "Order not found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            serializer = BatchOrderShipmentUpdateSerializer(
+                data=request.data,
+                context={'order_id': order.id, 'request': request}
+            )
+
+            if not serializer.is_valid():
+                return Response(
+                    serializer.errors,
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            with transaction.atomic():
+                updated_shipments = serializer.update(None, serializer.validated_data)
+                response_serializer = ShippingSerializer(
+                    updated_shipments, 
+                    many=True,
+                    context=self.get_serializer_context()
+                )
+                return Response(response_serializer.data)
+
+        except ValidationError as e:
+            return Response(
+                {"detail": str(e) if str(e) else "Validation error occurred"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            return Response(
+                {"detail": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def destroy(self, request, *args, **kwargs):
+        """
+        Delete a shipping record if it's allowed
+        """
+        shipping = self.get_object()
+        
+        # Check if the order is closed
+        if shipping.order.status == 'CLOSED':
+            return Response(
+                {"detail": "Cannot delete shipments from a closed order"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Perform the deletion
+        shipping.delete()
+        
+        # Update the order item's fulfilled quantity
+        shipping.order_item.update_fulfilled_quantity()
+        shipping.order_item.save()
+        
+        # Update the order status
+        shipping.order.update_order_status()
+        
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 class SalesOrderByNumberView(generics.RetrieveAPIView):
     queryset = SalesOrder.objects.all()
