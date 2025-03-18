@@ -2,8 +2,8 @@ from rest_framework import serializers
 from .models import (
     WorkOrder, BOM, Machine, ManufacturingProcess,
     SubWorkOrder, BOMComponent, WorkOrderOutput,
-    SubWorkOrderProcess, WorkOrderStatusChange, WorkflowProcess,
-    ProcessConfig
+    SubWorkOrderProcess, WorkOrderStatusChange,
+    ProcessConfig, ProductWorkflow
 )
 from inventory.serializers import InventoryCategorySerializer, ProductSerializer, RawMaterialSerializer
 from django.db import transaction
@@ -12,173 +12,57 @@ from erp_core.serializers import UserSerializer
 class MachineSerializer(serializers.ModelSerializer):
     class Meta:
         model = Machine
-        fields = [
-            'id', 'machine_code', 'machine_type', 'status',
-            'brand', 'model', 'axis_count', 'internal_cooling',
-            'motor_power_kva', 'holder_type', 'spindle_motor_power_10_percent_kw',
-            'spindle_motor_power_30_percent_kw', 'power_hp', 'spindle_speed_rpm',
-            'tool_count', 'nc_control_unit', 'manufacturing_year',
-            'serial_number', 'machine_weight_kg', 'max_part_size',
-            'description', 'maintenance_interval', 'last_maintenance_date',
-            'next_maintenance_date', 'maintenance_notes', 'created_at', 'modified_at'
-        ]
+        fields = '__all__'
 
 class ManufacturingProcessSerializer(serializers.ModelSerializer):
     class Meta:
         model = ManufacturingProcess
-        fields = [
-            'id', 'process_code', 'process_name',
-            'created_at', 'modified_at'
-        ]
-
-class WorkflowProcessSerializer(serializers.ModelSerializer):
-    process_details = ManufacturingProcessSerializer(source='process', read_only=True)
-    product_details = ProductSerializer(source='product', read_only=True)
-    process_configs = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
-
-    class Meta:
-        model = WorkflowProcess
-        fields = [
-            'id', 'product', 'product_details',
-            'process', 'process_details',
-            'stock_code', 'sequence_order',
-            'process_configs', 'created_at', 'modified_at'
-        ]
-
-class WorkflowProcessCreateUpdateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = WorkflowProcess
-        fields = [
-            'product', 'process',
-            'stock_code', 'sequence_order'
-        ]
-
-    def validate(self, data):
-        # Check for duplicate sequence_order within the same product
-        if 'product' in data and 'sequence_order' in data:
-            product = data['product']
-            sequence_order = data['sequence_order']
-            
-            # If updating an existing instance, exclude the current instance from the check
-            instance_id = self.instance.id if self.instance else None
-            
-            # Check if another process with the same sequence_order exists for this product
-            exists = WorkflowProcess.objects.filter(
-                product=product,
-                sequence_order=sequence_order
-            )
-            
-            if instance_id:
-                exists = exists.exclude(id=instance_id)
-                
-            if exists.exists():
-                raise serializers.ValidationError({
-                    'sequence_order': f'A process with sequence order {sequence_order} already exists for this product.'
-                })
-
-        # Check for duplicate product-process-stock_code combination
-        if all(key in data for key in ['product', 'process', 'stock_code']):
-            product = data['product']
-            process = data['process']
-            stock_code = data['stock_code']
-            
-            exists = WorkflowProcess.objects.filter(
-                product=product,
-                process=process,
-                stock_code=stock_code
-            )
-            
-            if instance_id:
-                exists = exists.exclude(id=instance_id)
-                
-            if exists.exists():
-                raise serializers.ValidationError({
-                    'non_field_errors': 'A workflow process with this product, process, and stock code combination already exists.'
-                })
-                
-        return data
+        fields = '__all__'
 
 class ProcessConfigSerializer(serializers.ModelSerializer):
-    workflow_process_details = WorkflowProcessSerializer(source='workflow_process', read_only=True)
-    cycle_time = serializers.FloatField(source='get_cycle_time', read_only=True)
-    tool_details = serializers.SerializerMethodField()
-    control_gauge_details = serializers.SerializerMethodField()
-    fixture_details = serializers.SerializerMethodField()
+    process_name = serializers.CharField(source='process.process_name', read_only=True)
+    process_code = serializers.CharField(source='process.process_code', read_only=True)
+    tool_name = serializers.CharField(source='tool.name', read_only=True)
+    control_gauge_name = serializers.CharField(source='control_gauge.name', read_only=True)
+    fixture_name = serializers.CharField(source='fixture.name', read_only=True)
+    cycle_time = serializers.IntegerField(source='get_cycle_time', read_only=True)
 
     class Meta:
         model = ProcessConfig
         fields = [
-            'id', 'workflow_process', 'workflow_process_details',
-            'tool', 'tool_details',
-            'control_gauge', 'control_gauge_details',
-            'fixture', 'fixture_details',
+            'id', 'workflow', 'process', 'process_code', 'process_name', 'version', 'status',
+            'sequence_order', 'stock_code', 'tool', 'tool_name',
+            'control_gauge', 'control_gauge_name', 'fixture', 'fixture_name',
             'axis_count', 'machine_time', 'setup_time', 'net_time',
-            'number_of_bindings', 'cycle_time',
-            'created_at', 'modified_at'
+            'number_of_bindings', 'effective_date', 'description',
+            'cycle_time', 'created_at', 'modified_at'
         ]
-
-    def get_tool_details(self, obj):
-        if obj.tool:
-            return {
-                'stock_code': obj.tool.stock_code,
-                'name': obj.tool.tool_type,
-                'material': obj.tool.tool_material,
-                'diameter': obj.tool.tool_diameter,
-                'length': obj.tool.tool_length,
-                'width': obj.tool.tool_width,
-                'height': obj.tool.tool_height,
-                'angle': obj.tool.tool_angle,
-                'radius': obj.tool.tool_radius,
-                'connection_diameter': obj.tool.tool_connection_diameter,
-                'status': obj.tool.status
-            }
-        return None
-
-    def get_control_gauge_details(self, obj):
-        if obj.control_gauge:
-            return {
-                'stock_code': obj.control_gauge.stock_code,
-                'name': obj.control_gauge.stock_name,
-                'type': obj.control_gauge.stock_type,
-                'description': obj.control_gauge.description
-            }
-        return None
-
-    def get_fixture_details(self, obj):
-        if obj.fixture:
-            return {
-                'code': obj.fixture.code,
-                'name': obj.fixture.name,
-                'status': obj.fixture.status
-            }
-        return None
-
-class ProcessConfigCreateUpdateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = ProcessConfig
-        fields = [
-            'workflow_process', 'tool', 'control_gauge',
-            'fixture', 'axis_count', 'machine_time',
-            'setup_time', 'net_time', 'number_of_bindings'
-        ]
+        read_only_fields = ['effective_date']
 
     def validate(self, data):
-        # Validate time fields are non-negative
-        for field in ['machine_time', 'setup_time', 'net_time']:
-            value = data.get(field)
-            if value is not None and value < 0:
-                raise serializers.ValidationError({
-                    field: f'{field.replace("_", " ").title()} cannot be negative'
-                })
-
-        # Validate number of bindings
-        bindings = data.get('number_of_bindings')
-        if bindings is not None and bindings < 0:
-            raise serializers.ValidationError({
-                'number_of_bindings': 'Number of bindings cannot be negative'
-            })
-
+        # Ensure at least one of tool, control_gauge, or fixture is specified
+        if not any([data.get('tool'), data.get('control_gauge'), data.get('fixture')]):
+            raise serializers.ValidationError(
+                "At least one of tool, control gauge, or fixture must be specified"
+            )
         return data
+
+class ProductWorkflowSerializer(serializers.ModelSerializer):
+    process_configs = ProcessConfigSerializer(many=True, read_only=True)
+    product_code = serializers.CharField(source='product.product_code', read_only=True)
+    product_name = serializers.CharField(source='product.product_name', read_only=True)
+    created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
+    approved_by_name = serializers.CharField(source='approved_by.get_full_name', read_only=True)
+
+    class Meta:
+        model = ProductWorkflow
+        fields = [
+            'id', 'product', 'product_code', 'product_name', 'version',
+            'status', 'effective_date', 'notes', 'process_configs',
+            'created_by', 'created_by_name', 'approved_by', 'approved_by_name',
+            'approved_at', 'created_at'
+        ]
+        read_only_fields = ['effective_date', 'approved_at', 'created_at']
 
 class BOMComponentSerializer(serializers.ModelSerializer):
     product_code = serializers.CharField(source='product.product_code', read_only=True)
@@ -349,65 +233,63 @@ class WorkOrderStatusChangeSerializer(serializers.ModelSerializer):
         ]
 
 class SubWorkOrderProcessSerializer(serializers.ModelSerializer):
-    process = ManufacturingProcessSerializer(read_only=True)
-    machine = MachineSerializer(read_only=True)
-    operator = UserSerializer(read_only=True)
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
-    workflow_process_details = WorkflowProcessSerializer(source='workflow_process', read_only=True)
     process_config_details = ProcessConfigSerializer(source='process_config', read_only=True)
+    machine_details = MachineSerializer(source='machine', read_only=True)
+    operator_name = serializers.CharField(source='operator.get_full_name', read_only=True)
 
     class Meta:
         model = SubWorkOrderProcess
         fields = [
-            'id', 'sub_work_order', 'workflow_process', 'workflow_process_details',
-            'process_config', 'process_config_details',
-            'machine', 'sequence_order', 'planned_duration_minutes',
-            'actual_duration_minutes', 'status', 'status_display',
-            'start_time', 'end_time', 'operator', 'setup_time_minutes',
-            'notes'
+            'id', 'sub_work_order', 'process_config', 'process_config_details',
+            'machine', 'machine_details', 'sequence_order', 'planned_duration_minutes',
+            'actual_duration_minutes', 'status', 'start_time', 'end_time',
+            'operator', 'operator_name', 'setup_time_minutes', 'notes'
         ]
 
 class SubWorkOrderProcessCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = SubWorkOrderProcess
         fields = [
-            'sub_work_order', 'workflow_process', 'process_config',
+            'sub_work_order', 'process_config',
             'machine', 'sequence_order', 'planned_duration_minutes',
             'status', 'start_time', 'end_time', 'operator',
             'setup_time_minutes', 'notes'
         ]
 
     def validate(self, data):
-        # Ensure process_config belongs to the workflow_process if both are provided
-        workflow_process = data.get('workflow_process')
+        # Ensure process_config belongs to the workflow if both are provided
         process_config = data.get('process_config')
                 
-        if workflow_process and process_config and process_config.workflow_process != workflow_process:
+        if process_config and process_config.workflow != data.get('sub_work_order').parent_work_order.workflow:
             raise serializers.ValidationError(
-                "The selected process configuration does not belong to the selected workflow process"
+                "The selected process configuration does not belong to the work order's workflow"
             )
                 
         return data
 
 class SubWorkOrderSerializer(serializers.ModelSerializer):
     processes = SubWorkOrderProcessSerializer(many=True, read_only=True)
-    outputs = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
-    target_category = InventoryCategorySerializer(read_only=True)
-    component_type = serializers.CharField(read_only=True)
-    assigned_to = UserSerializer(read_only=True)
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    bom_component_details = serializers.SerializerMethodField()
 
     class Meta:
         model = SubWorkOrder
         fields = [
-            'id', 'parent_work_order', 'bom_component',
-            'quantity', 'planned_start', 'planned_end',
-            'actual_start', 'actual_end', 'status', 'status_display',
-            'output_quantity', 'scrap_quantity',
-            'target_category', 'notes', 'processes',
-            'outputs', 'component_type', 'completion_percentage',
-            'assigned_to'
+            'id', 'parent_work_order', 'bom_component', 'bom_component_details',
+            'quantity', 'planned_start', 'planned_end', 'actual_start',
+            'actual_end', 'status', 'output_quantity', 'scrap_quantity',
+            'target_category', 'notes', 'completion_percentage', 'assigned_to',
+            'processes', 'created_at', 'updated_at'
         ]
+
+    def get_bom_component_details(self, obj):
+        component = obj.bom_component
+        return {
+            'product_code': component.product.product_code,
+            'product_name': component.product.product_name,
+            'quantity': component.quantity,
+            'sequence_order': component.sequence_order,
+            'product_type': component.product.product_type
+        }
 
 class SubWorkOrderCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
@@ -442,19 +324,25 @@ class SubWorkOrderCreateUpdateSerializer(serializers.ModelSerializer):
 
 class WorkOrderSerializer(serializers.ModelSerializer):
     sub_orders = SubWorkOrderSerializer(many=True, read_only=True)
-    bom = BOMSerializer(read_only=True)
-    assigned_to = UserSerializer(read_only=True)
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    product_details = serializers.SerializerMethodField()
+    assigned_to_name = serializers.CharField(source='assigned_to.get_full_name', read_only=True)
 
     class Meta:
         model = WorkOrder
         fields = [
-            'id', 'order_number', 'sales_order_item',
-            'bom', 'quantity', 'planned_start', 'planned_end',
-            'actual_start', 'actual_end', 'status', 'status_display',
-            'priority', 'notes', 'sub_orders', 'completion_percentage',
-            'assigned_to'
+            'id', 'order_number', 'sales_order_item', 'bom', 'product_details',
+            'quantity', 'planned_start', 'planned_end', 'actual_start',
+            'actual_end', 'status', 'priority', 'notes', 'completion_percentage',
+            'assigned_to', 'assigned_to_name', 'sub_orders', 'created_at', 'updated_at'
         ]
+
+    def get_product_details(self, obj):
+        return {
+            'product_code': obj.bom.product.product_code,
+            'product_name': obj.bom.product.product_name,
+            'product_type': obj.bom.product.product_type,
+            'bom_version': obj.bom.version
+        }
 
 class WorkOrderCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
@@ -486,17 +374,14 @@ class WorkOrderCreateUpdateSerializer(serializers.ModelSerializer):
         return data
 
 class WorkOrderOutputSerializer(serializers.ModelSerializer):
-    target_category = InventoryCategorySerializer(read_only=True)
-    created_by = UserSerializer(read_only=True)
-    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
 
     class Meta:
         model = WorkOrderOutput
         fields = [
-            'id', 'sub_work_order', 'quantity', 'status',
-            'status_display', 'target_category', 'notes',
-            'quarantine_reason', 'inspection_required',
-            'created_by', 'production_date', 'created_at'
+            'id', 'sub_work_order', 'quantity', 'status', 'target_category',
+            'notes', 'quarantine_reason', 'inspection_required', 'created_by',
+            'created_by_name', 'production_date', 'created_at', 'updated_at'
         ]
 
 class WorkOrderOutputCreateUpdateSerializer(serializers.ModelSerializer):
@@ -556,3 +441,78 @@ class WorkOrderOutputCreateUpdateSerializer(serializers.ModelSerializer):
                 )
                 
         return data
+
+class ProcessConfigCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProcessConfig
+        fields = [
+            'process', 'version', 'status',
+            'sequence_order', 'stock_code', 'tool',
+            'control_gauge', 'fixture', 'axis_count',
+            'machine_time', 'setup_time', 'net_time',
+            'number_of_bindings', 'description'
+        ]
+
+    def validate(self, data):
+        # Ensure at least one of tool, control_gauge, or fixture is specified
+        if not any([data.get('tool'), data.get('control_gauge'), data.get('fixture')]):
+            raise serializers.ValidationError(
+                "At least one of tool, control gauge, or fixture must be specified"
+            )
+        return data
+
+class WorkflowWithConfigsSerializer(serializers.ModelSerializer):
+    process_configs = ProcessConfigCreateSerializer(many=True)
+
+    class Meta:
+        model = ProductWorkflow
+        fields = [
+            'product', 'version', 'status',
+            'notes', 'process_configs'
+        ]
+
+    def validate(self, data):
+        # Check if there's already an active workflow for this product if status is ACTIVE
+        if data.get('status') == 'ACTIVE':
+            active_workflow = ProductWorkflow.objects.filter(
+                product=data['product'],
+                status='ACTIVE'
+            ).exists()
+            
+            if active_workflow:
+                raise serializers.ValidationError(
+                    f"Product already has an active workflow"
+                )
+
+        # Validate uniqueness of process configs
+        process_configs = data.get('process_configs', [])
+        product = data['product']
+        
+        for config in process_configs:
+            process = config.get('process')
+            stock_code = config.get('stock_code')
+            
+            # Check if there's an existing workflow with the same process and stock_code for this product
+            existing_configs = ProcessConfig.objects.filter(
+                workflow__product=product,
+                process=process,
+                stock_code=stock_code
+            )
+            
+            if existing_configs.exists():
+                raise serializers.ValidationError(
+                    f"A workflow configuration already exists for product {product.product_code} "
+                    f"with process {process} and stock code {stock_code}"
+                )
+
+        return data
+
+    @transaction.atomic
+    def create(self, validated_data):
+        process_configs_data = validated_data.pop('process_configs', [])
+        workflow = ProductWorkflow.objects.create(**validated_data)
+
+        for config_data in process_configs_data:
+            ProcessConfig.objects.create(workflow=workflow, **config_data)
+
+        return workflow

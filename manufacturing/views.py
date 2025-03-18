@@ -15,23 +15,180 @@ from django.db.models import Q
 from django.core.exceptions import ValidationError as DjangoValidationError
 
 from .models import (
-    WorkOrder, BOM, Machine, ManufacturingProcess,
-    SubWorkOrder, BOMComponent, WorkOrderOutput,
-    SubWorkOrderProcess, WorkOrderStatusChange,
-    WorkflowProcess, WorkOrderStatusTransition, ProcessConfig
+    WorkOrder, Machine, ManufacturingProcess, ProductWorkflow,
+    SubWorkOrder, WorkOrderOutput, SubWorkOrderProcess,
+    WorkOrderStatusChange, ProcessConfig, WorkOrderStatusTransition
 )
 from .serializers import (
-    WorkOrderSerializer, BOMSerializer, MachineSerializer,
-    ManufacturingProcessSerializer, SubWorkOrderSerializer,
-    BOMComponentSerializer, WorkOrderOutputSerializer,
-    SubWorkOrderProcessSerializer, WorkOrderCreateUpdateSerializer,
-    BOMCreateUpdateSerializer, BOMWithComponentsSerializer,
-    SubWorkOrderCreateUpdateSerializer, SubWorkOrderProcessCreateUpdateSerializer,
-    WorkOrderOutputCreateUpdateSerializer, BOMComponentCreateUpdateSerializer,
-    WorkOrderStatusChangeSerializer, WorkflowProcessSerializer,
-    WorkflowProcessCreateUpdateSerializer, ProcessConfigSerializer,
-    ProcessConfigCreateUpdateSerializer
+    WorkOrderSerializer, MachineSerializer, ManufacturingProcessSerializer,
+    SubWorkOrderSerializer, WorkOrderOutputSerializer, SubWorkOrderProcessSerializer,
+    WorkOrderCreateUpdateSerializer, SubWorkOrderCreateUpdateSerializer,
+    SubWorkOrderProcessCreateUpdateSerializer, WorkOrderOutputCreateUpdateSerializer,
+    WorkOrderStatusChangeSerializer, ProcessConfigSerializer, ProductWorkflowSerializer,
+    WorkflowWithConfigsSerializer
 )
+
+class ProductWorkflowViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['product', 'status']
+    search_fields = ['product__product_code', 'product__product_name', 'version', 'notes']
+    ordering_fields = ['version', 'effective_date', 'created_at']
+    ordering = ['-created_at']
+
+    def get_queryset(self):
+        return ProductWorkflow.objects.select_related(
+            'product', 'created_by', 'approved_by'
+        ).prefetch_related('process_configs')
+
+    def get_serializer_class(self):
+        if self.action == 'create_with_configs':
+            return WorkflowWithConfigsSerializer
+        if self.action in ['create', 'update', 'partial_update']:
+            return ProductWorkflowSerializer
+        return ProductWorkflowSerializer
+
+    @action(detail=True, methods=['post'])
+    def activate(self, request, pk=None):
+        workflow = self.get_object()
+        try:
+            workflow.activate(request.user)
+            return Response({'status': 'workflow activated'})
+        except DjangoValidationError as e:
+            raise ValidationError(detail=str(e))
+
+    @action(detail=True, methods=['post'])
+    def create_new_version(self, request, pk=None):
+        workflow = self.get_object()
+        try:
+            new_workflow = workflow.create_new_version()
+            serializer = self.get_serializer(new_workflow)
+            return Response(serializer.data)
+        except Exception as e:
+            raise ValidationError(detail=str(e))
+
+    @action(detail=False, methods=['post'])
+    def create_with_configs(self, request):
+        """
+        Create a workflow with its process configurations in a single request.
+        """
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            workflow = serializer.save(created_by=self.request.user)
+            
+            response_serializer = ProductWorkflowSerializer(workflow)
+            return Response(
+                response_serializer.data,
+                status=status.HTTP_201_CREATED
+            )
+        except ValidationError as e:
+            return Response(
+                {'detail': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            return Response(
+                {'detail': 'An error occurred while creating the workflow'},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+class ProcessConfigViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ProcessConfigSerializer
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = {
+        'workflow': ['exact'],
+        'process': ['exact'],
+        'status': ['exact'],
+        'axis_count': ['exact', 'isnull'],
+        'tool': ['exact', 'isnull'],
+        'control_gauge': ['exact', 'isnull'],
+        'fixture': ['exact', 'isnull']
+    }
+    search_fields = [
+        'workflow__product__product_code',
+        'process__process_code',
+        'stock_code'
+    ]
+    ordering_fields = ['sequence_order', 'version', 'created_at']
+    ordering = ['workflow', 'sequence_order']
+
+    def get_queryset(self):
+        return ProcessConfig.objects.select_related(
+            'workflow__product',
+            'process',
+            'tool',
+            'control_gauge',
+            'fixture'
+        )
+
+    @action(detail=True, methods=['post'])
+    def activate(self, request, pk=None):
+        config = self.get_object()
+        try:
+            config.activate()
+            return Response({'status': 'configuration activated'})
+        except DjangoValidationError as e:
+            raise ValidationError(detail=str(e))
+
+    @action(detail=True, methods=['post'])
+    def create_new_version(self, request, pk=None):
+        config = self.get_object()
+        try:
+            new_config = config.create_new_version()
+            serializer = self.get_serializer(new_config)
+            return Response(serializer.data)
+        except Exception as e:
+            raise ValidationError(detail=str(e))
+
+class ManufacturingProcessViewSet(viewsets.ModelViewSet):
+    queryset = ManufacturingProcess.objects.all()
+    serializer_class = ManufacturingProcessSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter]
+    search_fields = ['process_code', 'process_name']
+
+    def handle_exception(self, exc):
+        if isinstance(exc, DjangoValidationError):
+            return Response(
+                {'detail': str(exc)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        return super().handle_exception(exc)
+
+class MachineViewSet(viewsets.ModelViewSet):
+    queryset = Machine.objects.all()
+    serializer_class = MachineSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend, SearchFilter]
+    filterset_fields = ['machine_type', 'status', 'axis_count']
+    search_fields = ['machine_code', 'brand', 'model']
+
+    @action(detail=True, methods=['post'])
+    def update_status(self, request, pk=None):
+        machine = self.get_object()
+        new_status = request.data.get('status')
+        
+        if not new_status or new_status not in dict(MachineStatus.choices):
+            raise ValidationError({'status': 'Invalid status value'})
+            
+        machine.status = new_status
+        machine.save()
+        
+        return Response({'status': 'machine status updated'})
+
+    @action(detail=True, methods=['post'])
+    def record_maintenance(self, request, pk=None):
+        machine = self.get_object()
+        machine.last_maintenance_date = timezone.now().date()
+        machine.calculate_next_maintenance()
+        machine.save()
+        
+        return Response({'status': 'maintenance recorded'})
 
 class WorkOrderViewSet(viewsets.ModelViewSet):
     queryset = WorkOrder.objects.select_related(
@@ -273,46 +430,6 @@ class BOMViewSet(viewsets.ModelViewSet):
             )
         return super().handle_exception(exc)
 
-class MachineViewSet(viewsets.ModelViewSet):
-    queryset = Machine.objects.all()
-    serializer_class = MachineSerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, SearchFilter]
-    filterset_fields = ['machine_type', 'status', 'axis_count']
-    search_fields = ['machine_code', 'brand', 'model']
-
-    @action(detail=True, methods=['post'])
-    def update_status(self, request, pk=None):
-        machine = self.get_object()
-        new_status = request.data.get('status')
-        
-        if new_status not in MachineStatus.values:
-            return Response(
-                {'error': 'Invalid status'}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-            
-        machine.status = new_status
-        machine.save()
-        return Response(self.get_serializer(machine).data)
-
-    @action(detail=True, methods=['post'])
-    def record_maintenance(self, request, pk=None):
-        machine = self.get_object()
-        machine.last_maintenance_date = request.data.get('maintenance_date')
-        machine.maintenance_notes = request.data.get('notes')
-        machine.calculate_next_maintenance()
-        machine.save()
-        return Response(self.get_serializer(machine).data)
-    
-    def handle_exception(self, exc):
-        if isinstance(exc, ValidationError):
-            return Response(
-                {'error': str(exc)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        return super().handle_exception(exc)
-
 class BOMComponentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter]
@@ -329,61 +446,6 @@ class BOMComponentViewSet(viewsets.ModelViewSet):
         if self.action in ['create', 'update', 'partial_update']:
             return BOMComponentCreateUpdateSerializer
         return BOMComponentSerializer
-    
-    def handle_exception(self, exc):
-        if isinstance(exc, ValidationError):
-            return Response(
-                {'error': str(exc)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        return super().handle_exception(exc)
-
-class WorkflowProcessViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = {
-        'product': ['exact'],
-        'stock_code': ['exact', 'icontains']
-    }
-    search_fields = ['stock_code', 'product__product_name', 'process__process_name']
-    ordering_fields = ['sequence_order', 'created_at']
-    ordering = ['product', 'sequence_order']
-
-    def get_queryset(self):
-        return WorkflowProcess.objects.select_related(
-            'product',
-            'process'
-        ).prefetch_related(
-            'process_configs'
-        ).all()
-
-    def get_serializer_class(self):
-        if self.action in ['create', 'update', 'partial_update']:
-            return WorkflowProcessCreateUpdateSerializer
-        return WorkflowProcessSerializer
-
-    def perform_create(self, serializer):
-        serializer.save()
-
-    def perform_update(self, serializer):
-        serializer.save()
-        
-    @action(detail=True, methods=['get'])
-    def configs(self, request, pk=None):
-        """
-        Get all process configurations for a workflow process
-        """
-        workflow_process = self.get_object()
-        configs = ProcessConfig.objects.filter(workflow_process=workflow_process)
-        serializer = ProcessConfigSerializer(configs, many=True)
-        return Response(serializer.data)
-
-class ManufacturingProcessViewSet(viewsets.ModelViewSet):
-    queryset = ManufacturingProcess.objects.all()
-    serializer_class = ManufacturingProcessSerializer
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, SearchFilter]
-    search_fields = ['process_code', 'process_name']
     
     def handle_exception(self, exc):
         if isinstance(exc, ValidationError):
@@ -474,13 +536,12 @@ class SubWorkOrderViewSet(viewsets.ModelViewSet):
 class SubWorkOrderProcessViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, SearchFilter]
-    filterset_fields = ['sub_work_order', 'workflow_process', 'process_config', 'machine', 'status', 'operator']
+    filterset_fields = ['sub_work_order', 'process_config', 'machine', 'status', 'operator']
     search_fields = ['notes']
 
     def get_queryset(self):
         return SubWorkOrderProcess.objects.select_related(
             'sub_work_order',
-            'workflow_process',
             'process_config',
             'machine',
             'operator'
@@ -593,74 +654,3 @@ class WorkOrderOutputViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         return super().handle_exception(exc)
-
-class ProcessConfigViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = {
-        'workflow_process': ['exact'],
-        'axis_count': ['exact', 'isnull'],
-        'tool': ['exact', 'isnull'],
-        'control_gauge': ['exact', 'isnull'],
-        'fixture': ['exact', 'isnull']
-    }
-    search_fields = ['workflow_process__stock_code', 'workflow_process__process__process_name']
-    ordering_fields = ['created_at']
-    ordering = ['workflow_process', 'created_at']
-
-    def get_queryset(self):
-        return ProcessConfig.objects.select_related(
-            'workflow_process',
-            'workflow_process__product',
-            'workflow_process__process',
-            'tool',
-            'control_gauge',
-            'fixture'
-        ).all()
-
-    def get_serializer_class(self):
-        if self.action in ['create', 'update', 'partial_update']:
-            return ProcessConfigCreateUpdateSerializer
-        return ProcessConfigSerializer
-
-    def perform_create(self, serializer):
-        try:
-            serializer.save()
-        except DjangoValidationError as e:
-            raise ValidationError(detail=str(e))
-
-    def perform_update(self, serializer):
-        try:
-            serializer.save()
-        except DjangoValidationError as e:
-            raise ValidationError(detail=str(e))
-
-    def handle_exception(self, exc):
-        if isinstance(exc, DjangoValidationError):
-            return Response(
-                {"detail": str(exc)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        return super().handle_exception(exc)
-
-class SubWorkOrderProcessCreateUpdateSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SubWorkOrderProcess
-        fields = [
-            'sub_work_order', 'workflow_process', 'process_config',
-            'machine', 'sequence_order', 'planned_duration_minutes',
-            'status', 'start_time', 'end_time', 'operator',
-            'setup_time_minutes', 'notes'
-        ]
-
-    def validate(self, data):
-        # Ensure process_config belongs to the workflow_process if both are provided
-        workflow_process = data.get('workflow_process')
-        process_config = data.get('process_config')
-                
-        if workflow_process and process_config and process_config.workflow_process != workflow_process:
-            raise serializers.ValidationError(
-                "The selected process configuration does not belong to the selected workflow process"
-            )
-                
-        return data

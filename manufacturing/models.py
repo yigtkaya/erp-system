@@ -17,6 +17,7 @@ class AxisCount(models.TextChoices):
     THREE_AXIS = '3EKSEN', '3 Eksen'
     TWO_AXIS = '2EKSEN', '2 Eksen'
     ONE_AXIS = '1EKSEN', '1 Eksen'
+    NONE = 'NONE', 'NONE'
 
 
 class MachineType(models.TextChoices):
@@ -244,70 +245,202 @@ class BOMComponent(BaseModel):
     def __str__(self):
         return f"{self.product.product_code} x{self.quantity}"
 
-class WorkflowProcess(BaseModel):
+class WorkflowStatus(models.TextChoices):
+    DRAFT = 'DRAFT', 'Draft'
+    ACTIVE = 'ACTIVE', 'Active'
+    ARCHIVED = 'ARCHIVED', 'Archived'
+
+class ProductWorkflow(BaseModel):
     """
-    Represents a manufacturing process step in the workflow.
-    Each process is uniquely identified by product, process, and stock code combination.
-    Some processes may not require machines (e.g., manual assembly, quality control).
+    Represents a versioned workflow configuration for a product.
+    Only one workflow version can be active for a product at a time.
     """
     product = models.ForeignKey(
         'inventory.Product',
         on_delete=models.PROTECT,
-        related_name='workflow_processes',
-        help_text="Product this workflow process belongs to"
+        related_name='workflows',
+        help_text="Product this workflow belongs to"
     )
-    process = models.ForeignKey(ManufacturingProcess, on_delete=models.PROTECT)
-    stock_code = models.CharField(max_length=50, help_text="Stock code for the process output")
-    sequence_order = models.IntegerField(
-        help_text="Order of this process in the product's workflow"
+    version = models.CharField(
+        max_length=20,
+        help_text="Version number of the workflow (e.g., '1.0', '2.1')"
     )
+    status = models.CharField(
+        max_length=20,
+        choices=WorkflowStatus.choices,
+        default=WorkflowStatus.DRAFT,
+        help_text="Current status of this workflow version"
+    )
+    effective_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Date when this workflow version becomes/became active"
+    )
+    notes = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Notes about this workflow version"
+    )
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.PROTECT,
+        related_name='created_workflows'
+    )
+    approved_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='approved_workflows'
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
-        verbose_name = "Workflow Process"
-        verbose_name_plural = "Workflow Processes"
-        ordering = ['product', 'sequence_order']
-        unique_together = [
-            ('product', 'sequence_order'),
-            ('product', 'process', 'stock_code')  # Ensure unique combination
-        ]
+        verbose_name = "Product Workflow"
+        verbose_name_plural = "Product Workflows"
         indexes = [
-            models.Index(fields=['product']),
-            models.Index(fields=['stock_code']),
-            models.Index(fields=['product', 'process', 'stock_code']),  # Index for the unique combination
+            models.Index(fields=['product', 'status']),
+            models.Index(fields=['product', 'version']),
         ]
 
     def clean(self):
-        super().clean()
-        # Check for duplicate sequence_order within the same product
-        if self.product_id is not None and self.sequence_order is not None:
-            duplicate_exists = WorkflowProcess.objects.filter(
+        if self.status == WorkflowStatus.ACTIVE:
+            # Check if there's already an active workflow for this product
+            active_workflow = ProductWorkflow.objects.filter(
                 product=self.product,
-                sequence_order=self.sequence_order
-            ).exclude(pk=self.pk).exists()
+                status=WorkflowStatus.ACTIVE
+            ).exclude(pk=self.pk).first()
             
-            if duplicate_exists:
-                raise ValidationError({
-                    'sequence_order': f'A process with sequence order {self.sequence_order} already exists for this product.'
-                })
+            if active_workflow:
+                raise ValidationError(
+                    f"Product {self.product.product_code} already has an active workflow "
+                    f"(version {active_workflow.version})"
+                )
+            
+            if not self.effective_date:
+                self.effective_date = timezone.now().date()
 
     def save(self, *args, **kwargs):
         self.clean()
         super().save(*args, **kwargs)
 
     def __str__(self):
-        return f"{self.product.product_code} - {self.process.process_name} - {self.stock_code}"
+        return f"{self.product.product_code} - Workflow v{self.version} ({self.status})"
+
+    def create_new_version(self):
+        """
+        Creates a new draft version based on this workflow.
+        """
+        # Parse current version and increment
+        try:
+            major, minor = self.version.split('.')
+            new_version = f"{major}.{int(minor) + 1}"
+        except ValueError:
+            new_version = f"{self.version}.1"
+
+        # Create new workflow version
+        new_workflow = ProductWorkflow.objects.create(
+            product=self.product,
+            version=new_version,
+            status=WorkflowStatus.DRAFT,
+            notes=f"Derived from version {self.version}",
+            created_by=self.created_by
+        )
+
+        # Copy all processes and their configurations
+        for process in self.processes.all():
+            new_process = ProcessConfig.objects.create(
+                workflow=new_workflow,
+                process=process.process,
+                sequence_order=process.sequence_order,
+                stock_code=process.stock_code,
+                description=process.description
+            )
+            
+            # Copy process configurations
+            for config in process.process_configs.all():
+                ProcessConfig.objects.create(
+                    workflow=new_workflow,
+                    process=process.process,
+                    sequence_order=process.sequence_order,
+                    stock_code=process.stock_code,
+                    tool=config.tool,
+                    control_gauge=config.control_gauge,
+                    fixture=config.fixture,
+                    axis_count=config.axis_count,
+                    machine_time=config.machine_time,
+                    setup_time=config.setup_time,
+                    net_time=config.net_time,
+                    number_of_bindings=config.number_of_bindings
+                )
+
+        return new_workflow
+
+    def activate(self, user):
+        """
+        Activates this workflow version and archives the currently active version.
+        """
+        if self.status == WorkflowStatus.ACTIVE:
+            return False
+
+        # Archive the currently active version if it exists
+        ProductWorkflow.objects.filter(
+            product=self.product,
+            status=WorkflowStatus.ACTIVE
+        ).update(status=WorkflowStatus.ARCHIVED)
+
+        # Activate this version
+        self.status = WorkflowStatus.ACTIVE
+        self.effective_date = timezone.now().date()
+        self.approved_by = user
+        self.approved_at = timezone.now()
+        self.save()
+        return True
+
+class ProcessConfigStatus(models.TextChoices):
+    DRAFT = 'DRAFT', 'Draft'
+    ACTIVE = 'ACTIVE', 'Active'
+    ARCHIVED = 'ARCHIVED', 'Archived'
 
 class ProcessConfig(BaseModel):
     """
-    Represents configuration details for a specific manufacturing process 
-    according to the product and operation that will take place.
-    This allows for product-specific customization of manufacturing processes.
+    Represents configuration details for a specific manufacturing process in a product workflow.
+    Each configuration defines the tools, fixtures, and timing requirements for a process step.
+    Supports versioning and status tracking.
     """
-    workflow_process = models.ForeignKey(
-        WorkflowProcess, 
+    workflow = models.ForeignKey(
+        ProductWorkflow,
         on_delete=models.CASCADE,
         related_name='process_configs',
-        help_text="The workflow process this configuration belongs to"
+        null=True,  # Temporarily allow null
+        help_text="The workflow this process configuration belongs to"
+    )
+    process = models.ForeignKey(
+        ManufacturingProcess,
+        on_delete=models.PROTECT,
+        null=True,  # Temporarily allow null
+        help_text="The manufacturing process being configured"
+    )
+    version = models.CharField(
+        max_length=20,
+        default='1.0',
+        help_text="Version number of the process configuration (e.g., '1.0', '2.1')"
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=ProcessConfigStatus.choices,
+        default=ProcessConfigStatus.DRAFT,
+        help_text="Current status of this process configuration"
+    )
+    sequence_order = models.IntegerField(
+        default=1,
+        help_text="Order in which this process should be executed"
+    )
+    stock_code = models.CharField(
+        max_length=50,
+        null=True,  # Temporarily allow null
+        blank=True,  # Allow blank in forms
+        help_text="Stock code for the process output"
     )
     tool = models.ForeignKey(
         'inventory.Tool',
@@ -356,24 +489,29 @@ class ProcessConfig(BaseModel):
         help_text="Net time required to complete this process in minutes"
     )
     number_of_bindings = models.IntegerField(
-        blank=True, 
-        null=True,
-        help_text="Number of bindings required for this process"
+        default=1,
+        help_text="Number of bindings/setups required for this process"
     )
-    
+    effective_date = models.DateField(
+        null=True,
+        blank=True,
+        help_text="Date when this configuration version becomes/became active"
+    )
+    description = models.TextField(blank=True, null=True)
+
     class Meta:
         verbose_name = "Process Configuration"
         verbose_name_plural = "Process Configurations"
-        ordering = ['workflow_process', 'axis_count']
-        constraints = [
-            models.UniqueConstraint(
-                fields=['workflow_process', 'axis_count'],
-                name='unique_process_machine_config'
-            )
+        ordering = ['workflow', 'sequence_order']
+        unique_together = [
+            ('workflow', 'process', 'version'),
+            ('workflow', 'sequence_order', 'version')
         ]
         indexes = [
-            models.Index(fields=['workflow_process']),
-            models.Index(fields=['axis_count']),
+            models.Index(fields=['workflow', 'sequence_order']),
+            models.Index(fields=['workflow', 'process']),
+            models.Index(fields=['status']),
+            models.Index(fields=['version']),
             models.Index(fields=['tool']),
             models.Index(fields=['control_gauge']),
             models.Index(fields=['fixture']),
@@ -381,48 +519,112 @@ class ProcessConfig(BaseModel):
 
     def clean(self):
         super().clean()
-        if self.machine_time and self.machine_time < 0:
-            raise ValidationError({'machine_time': 'Machine time cannot be negative'})
+        if not any([self.tool, self.control_gauge, self.fixture]):
+            raise ValidationError(
+                "At least one of tool, control gauge, or fixture must be specified"
+            )
+
+        # Validate sequence order continuity
+        if self.pk is None:  # Only validate on creation
+            existing_orders = set(ProcessConfig.objects.filter(
+                workflow=self.workflow,
+                status=ProcessConfigStatus.ACTIVE
+            ).values_list('sequence_order', flat=True))
             
-        if self.setup_time and self.setup_time < 0:
-            raise ValidationError({'setup_time': 'Setup time cannot be negative'})
+            if existing_orders:
+                max_order = max(existing_orders)
+                if self.sequence_order > max_order + 1:
+                    raise ValidationError(
+                        f"Sequence order must be continuous. Next available order is {max_order + 1}"
+                    )
+
+        # Validate only one active version per process in a workflow
+        if self.status == ProcessConfigStatus.ACTIVE:
+            active_config = ProcessConfig.objects.filter(
+                workflow=self.workflow,
+                process=self.process,
+                status=ProcessConfigStatus.ACTIVE
+            ).exclude(pk=self.pk).first()
             
-        if self.net_time and self.net_time < 0:
-            raise ValidationError({'net_time': 'Net time cannot be negative'})
-            
-        if self.number_of_bindings and self.number_of_bindings < 0:
-            raise ValidationError({'number_of_bindings': 'Number of bindings cannot be negative'})
+            if active_config:
+                raise ValidationError(
+                    f"Process {self.process.process_code} already has an active configuration "
+                    f"(version {active_config.version})"
+                )
+
+    def create_new_version(self):
+        """
+        Creates a new draft version based on this configuration.
+        """
+        try:
+            major, minor = self.version.split('.')
+            new_version = f"{major}.{int(minor) + 1}"
+        except ValueError:
+            new_version = f"{self.version}.1"
+
+        return ProcessConfig.objects.create(
+            workflow=self.workflow,
+            process=self.process,
+            version=new_version,
+            status=ProcessConfigStatus.DRAFT,
+            sequence_order=self.sequence_order,
+            stock_code=self.stock_code,
+            tool=self.tool,
+            control_gauge=self.control_gauge,
+            fixture=self.fixture,
+            axis_count=self.axis_count,
+            machine_time=self.machine_time,
+            setup_time=self.setup_time,
+            net_time=self.net_time,
+            number_of_bindings=self.number_of_bindings,
+            description=f"Derived from version {self.version}"
+        )
+
+    def activate(self):
+        """
+        Activates this configuration version and archives the currently active version.
+        """
+        if self.status == ProcessConfigStatus.ACTIVE:
+            return False
+
+        # Archive the currently active version if it exists
+        ProcessConfig.objects.filter(
+            workflow=self.workflow,
+            process=self.process,
+            status=ProcessConfigStatus.ACTIVE
+        ).update(status=ProcessConfigStatus.ARCHIVED)
+
+        # Activate this version
+        self.status = ProcessConfigStatus.ACTIVE
+        self.effective_date = timezone.now().date()
+        self.save()
+        return True
 
     def save(self, *args, **kwargs):
-        self.full_clean()
+        self.clean()
         super().save(*args, **kwargs)
 
     def get_cycle_time(self):
         """
-        Calculate cycle time in minutes based on the formula:
-        Machine Time + max(Setup Time, Net Time)
-        If number_of_bindings > 0, divide the result by number_of_bindings
+        Calculate the total cycle time for this process configuration.
+        Returns time in minutes.
         """
-        if not self.machine_time:
-            return 0
-            
-        # Get the larger of setup_time and net_time
-        setup_or_net = max(
-            self.setup_time or 0,
-            self.net_time or 0
-        )
+        setup_time = self.setup_time or 0
+        machine_time = self.machine_time or 0
+        net_time = self.net_time or 0
         
-        # Calculate base cycle time
-        cycle_time = self.machine_time + setup_or_net
+        # Base cycle time is the sum of all times
+        cycle_time = setup_time + machine_time + net_time
         
-        # If there are bindings, divide by number of bindings
-        if self.number_of_bindings and self.number_of_bindings > 0:
-            cycle_time = cycle_time / self.number_of_bindings
+        # Multiply by number of bindings if applicable
+        if self.number_of_bindings > 1:
+            # Setup time is needed for each binding
+            cycle_time = (setup_time * self.number_of_bindings) + machine_time + net_time
             
         return cycle_time
 
     def __str__(self):
-        return f"Config for {self.workflow_process} ({self.axis_count or 'No machine axis'})"
+        return f"{self.workflow.product.product_code} - {self.process.process_name} v{self.version} ({self.status})"
 
 class WorkOrderStatusTransition:
     """
@@ -591,17 +793,17 @@ class WorkOrder(BaseModel):
             # For process components, create process steps
             if component.material.product_type == ProductType.SEMI:
                 # Create a process step for the workflow process
-                workflow_process = WorkflowProcess.objects.filter(
-                    product=component.material,
-                    raw_material=component.material
+                workflow_process = ProcessConfig.objects.filter(
+                    workflow=self.workflow,
+                    process=component.material
                 ).first()
                 
                 if workflow_process:
                     SubWorkOrderProcess.objects.create(
                         sub_work_order=sub_order,
-                        workflow_process=workflow_process,
+                        process_config=workflow_process,
                         sequence_order=1,
-                        planned_duration_minutes=workflow_process.estimated_duration_minutes
+                        planned_duration_minutes=workflow_process.get_cycle_time()
                     )
 
     def __str__(self):
@@ -770,7 +972,6 @@ class SubWorkOrderProcess(models.Model):
     ]
     
     sub_work_order = models.ForeignKey(SubWorkOrder, on_delete=models.CASCADE, related_name='processes')
-    workflow_process = models.ForeignKey(WorkflowProcess, on_delete=models.PROTECT, null=True)
     process_config = models.ForeignKey(ProcessConfig, on_delete=models.PROTECT, null=True, blank=True,
                                       help_text="Specific process configuration to use")
     machine = models.ForeignKey(Machine, on_delete=models.PROTECT, null=True, blank=True)
@@ -788,7 +989,6 @@ class SubWorkOrderProcess(models.Model):
         ordering = ['sequence_order']
         indexes = [
             models.Index(fields=['sub_work_order']),
-            models.Index(fields=['workflow_process']),
             models.Index(fields=['process_config']),
             models.Index(fields=['machine']),
             models.Index(fields=['status']),
@@ -799,10 +999,10 @@ class SubWorkOrderProcess(models.Model):
     def clean(self):
         super().clean()
         # Validate machine requirements against the workflow process
-        if self.machine and self.workflow_process:
-            if self.workflow_process.axis_count and self.machine.axis_count != self.workflow_process.axis_count:
+        if self.machine and self.process_config:
+            if self.process_config.axis_count and self.machine.axis_count != self.process_config.axis_count:
                 raise ValidationError("Machine axis count does not match process requirements")
-            if self.machine.machine_type != self.workflow_process.process.machine_type:
+            if self.machine.machine_type != self.process_config.process.machine_type:
                 raise ValidationError("Machine type does not match process requirements")
             if self.machine.status != MachineStatus.AVAILABLE:
                 raise ValidationError("Selected machine is not available")
