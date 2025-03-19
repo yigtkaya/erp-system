@@ -118,13 +118,20 @@ class ProcessConfigViewSet(viewsets.ModelViewSet):
     ordering = ['workflow', 'sequence_order']
 
     def get_queryset(self):
-        return ProcessConfig.objects.select_related(
+        queryset = ProcessConfig.objects.select_related(
             'workflow__product',
             'process',
             'tool',
             'control_gauge',
             'fixture'
         )
+        
+        # Filter by workflow_pk if this is a nested route
+        workflow_pk = self.kwargs.get('workflow_pk')
+        if workflow_pk is not None:
+            queryset = queryset.filter(workflow_id=workflow_pk)
+            
+        return queryset
 
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
