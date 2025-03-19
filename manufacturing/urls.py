@@ -5,6 +5,7 @@ from . import views
 app_name = 'manufacturing'
 
 router = DefaultRouter()
+router.register(r'boms', views.BOMViewSet, basename='bom')
 router.register(r'workflows', views.ProductWorkflowViewSet, basename='workflow')
 router.register(r'process-configs', views.ProcessConfigViewSet, basename='process-config')
 router.register(r'manufacturing-processes', views.ManufacturingProcessViewSet, basename='manufacturing-process')

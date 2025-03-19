@@ -74,7 +74,7 @@ class BOMComponentSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'bom', 'sequence_order', 'quantity', 
             'product', 'product_code', 'product_name', 'product_type',
-            'lead_time_days', 'notes'
+            'notes'
         ]
         read_only_fields = ['id']
 
@@ -82,27 +82,31 @@ class BOMComponentCreateUpdateSerializer(serializers.ModelSerializer):
     class Meta:
         model = BOMComponent
         fields = [
-            'bom', 'sequence_order', 'quantity',
-            'product', 'lead_time_days', 'notes'
+            'sequence_order', 'quantity',
+            'product', 'notes'
         ]
 
     def validate(self, data):
-        # Validate sequence order is unique within BOM
-        if self.instance:  # For updates
-            exists = BOMComponent.objects.filter(
-                bom=data.get('bom', self.instance.bom),
-                sequence_order=data.get('sequence_order', self.instance.sequence_order)
-            ).exclude(pk=self.instance.pk).exists()
-        else:  # For creates
-            exists = BOMComponent.objects.filter(
-                bom=data['bom'],
-                sequence_order=data['sequence_order']
-            ).exists()
+        # Validate product exists and can be used as a component
+        if 'product' in data:
+            from inventory.models import Product
+            product = data['product']
             
-        if exists:
-            raise serializers.ValidationError(
-                {'sequence_order': 'A component with this sequence order already exists in this BOM.'}
-            )
+            try:
+                # Handle product ID (integer or string)
+                if isinstance(product, (int, str)):
+                    try:
+                        # First try to get by ID
+                        product_id = int(product)
+                        product = Product.objects.get(id=product_id)
+                    except (ValueError, Product.DoesNotExist):
+                        # If not found by ID, try as product code
+                        product = Product.objects.get(product_code=product)
+                    data['product'] = product
+            except Product.DoesNotExist:
+                raise serializers.ValidationError({
+                    "product": f"Product with ID/code {product} does not exist"
+                })
             
         return data
 
@@ -196,14 +200,62 @@ class BOMWithComponentsSerializer(serializers.ModelSerializer):
     class Meta:
         model = BOM
         fields = [
-            'id', 'product', 'version', 'is_active', 'notes'
+            'id', 'product', 'version', 'is_active', 'notes', 'components'
         ]
     
     def validate(self, data):
+        # Validate product exists and can have a BOM
         if 'product' in data:
+            from inventory.models import Product
             product = data['product']
-            if product.product_type == 'STANDARD_PART':
-                raise serializers.ValidationError("Standard products (bought externally) cannot have a BOM")
+            
+            try:
+                # Handle product ID (integer or string)
+                if isinstance(product, (int, str)):
+                    try:
+                        # First try to get by ID
+                        product_id = int(product)
+                        product = Product.objects.get(id=product_id)
+                    except (ValueError, Product.DoesNotExist):
+                        # If not found by ID, try as product code
+                        product = Product.objects.get(product_code=product)
+                    data['product'] = product
+                
+                if product.product_type == 'STANDARD_PART':
+                    raise serializers.ValidationError({
+                        "product": "Standard products (bought externally) cannot have a BOM"
+                    })
+                
+                # Check for existing BOM with same product and version
+                if 'version' in data:
+                    existing_bom = BOM.objects.filter(
+                        product=product,
+                        version=data['version']
+                    )
+                    if self.instance:
+                        existing_bom = existing_bom.exclude(pk=self.instance.pk)
+                    
+                    if existing_bom.exists():
+                        raise serializers.ValidationError({
+                            "version": f"BOM with version {data['version']} already exists for this product"
+                        })
+            except Product.DoesNotExist:
+                raise serializers.ValidationError({
+                    "product": f"Product with ID/code {product} does not exist"
+                })
+        
+        # Validate components if provided
+        if 'components' in data:
+            sequence_orders = set()
+            
+            for component in data['components']:
+                # Check for duplicate sequence orders
+                if component['sequence_order'] in sequence_orders:
+                    raise serializers.ValidationError({
+                        "components": f"Duplicate sequence order {component['sequence_order']}"
+                    })
+                sequence_orders.add(component['sequence_order'])
+        
         return data
     
     @transaction.atomic
@@ -212,12 +264,29 @@ class BOMWithComponentsSerializer(serializers.ModelSerializer):
         bom = BOM.objects.create(**validated_data)
         
         for component_data in components_data:
-            component_data['bom'] = bom
-            component_serializer = BOMComponentCreateUpdateSerializer(data=component_data)
-            component_serializer.is_valid(raise_exception=True)
-            component_serializer.save()
+            BOMComponent.objects.create(bom=bom, **component_data)
         
         return bom
+    
+    @transaction.atomic
+    def update(self, instance, validated_data):
+        components_data = validated_data.pop('components', [])
+        
+        # Update BOM fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        
+        # Handle components
+        if components_data:
+            # Remove existing components
+            instance.components.all().delete()
+            
+            # Create new components
+            for component_data in components_data:
+                BOMComponent.objects.create(bom=instance, **component_data)
+        
+        return instance
 
 class WorkOrderStatusChangeSerializer(serializers.ModelSerializer):
     changed_by = UserSerializer(read_only=True)

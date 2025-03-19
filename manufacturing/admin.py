@@ -1,7 +1,8 @@
 from django.contrib import admin
 from .models import (
     ManufacturingProcess, Machine, ProductWorkflow, ProcessConfig,
-    WorkOrder, SubWorkOrder, SubWorkOrderProcess, WorkOrderOutput
+    WorkOrder, SubWorkOrder, SubWorkOrderProcess, WorkOrderOutput,
+    BOM, BOMComponent
 )
 
 @admin.register(ManufacturingProcess)
@@ -117,4 +118,74 @@ class WorkOrderOutputAdmin(admin.ModelAdmin):
     def save_model(self, request, obj, form, change):
         if not change:  # If creating new object
             obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+class BOMComponentInline(admin.TabularInline):
+    """
+    Inline admin for BOM components allowing editing components directly in the BOM admin.
+    """
+    model = BOMComponent
+    extra = 1  # Show one empty form for adding new components
+    fields = [
+        'sequence_order', 'product', 'quantity',
+        'notes'
+    ]
+    ordering = ['sequence_order']
+    autocomplete_fields = ['product']  # Enable autocomplete for product selection
+
+@admin.register(BOM)
+class BOMAdmin(admin.ModelAdmin):
+    list_display = [
+        'product', 'version', 'is_active', 'is_approved',
+        'approved_by', 'created_at', 'modified_at'
+    ]
+    list_filter = ['is_active', 'is_approved', 'created_at']
+    search_fields = [
+        'product__product_code',
+        'product__product_name',
+        'version',
+        'notes'
+    ]
+    readonly_fields = ['approved_by', 'approved_at', 'created_at', 'modified_at']
+    autocomplete_fields = ['product', 'parent_bom']
+    inlines = [BOMComponentInline]
+    ordering = ['-created_at']
+
+    def save_model(self, request, obj, form, change):
+        if not change:  # If creating new object
+            obj.created_by = request.user
+        obj.modified_by = request.user
+        super().save_model(request, obj, form, change)
+
+    def save_formset(self, request, form, formset, change):
+        instances = formset.save(commit=False)
+        for instance in instances:
+            if not instance.pk:  # If new instance
+                instance.created_by = request.user
+            instance.modified_by = request.user
+            instance.save()
+        formset.save_m2m()
+        # Handle deletions
+        for obj in formset.deleted_objects:
+            obj.delete()
+
+@admin.register(BOMComponent)
+class BOMComponentAdmin(admin.ModelAdmin):
+    list_display = [
+        'bom', 'sequence_order', 'product',
+        'quantity'
+    ]
+    list_filter = ['bom__is_active', 'bom__is_approved']
+    search_fields = [
+        'bom__product__product_code',
+        'product__product_code',
+        'notes'
+    ]
+    autocomplete_fields = ['bom', 'product']
+    ordering = ['bom', 'sequence_order']
+
+    def save_model(self, request, obj, form, change):
+        if not change:  # If creating new object
+            obj.created_by = request.user
+        obj.modified_by = request.user
         super().save_model(request, obj, form, change)

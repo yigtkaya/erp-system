@@ -17,7 +17,8 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from .models import (
     WorkOrder, Machine, ManufacturingProcess, ProductWorkflow,
     SubWorkOrder, WorkOrderOutput, SubWorkOrderProcess,
-    WorkOrderStatusChange, ProcessConfig, WorkOrderStatusTransition
+    WorkOrderStatusChange, ProcessConfig, WorkOrderStatusTransition,
+    BOM, BOMComponent
 )
 from .serializers import (
     WorkOrderSerializer, MachineSerializer, ManufacturingProcessSerializer,
@@ -25,7 +26,8 @@ from .serializers import (
     WorkOrderCreateUpdateSerializer, SubWorkOrderCreateUpdateSerializer,
     SubWorkOrderProcessCreateUpdateSerializer, WorkOrderOutputCreateUpdateSerializer,
     WorkOrderStatusChangeSerializer, ProcessConfigSerializer, ProductWorkflowSerializer,
-    WorkflowWithConfigsSerializer
+    WorkflowWithConfigsSerializer, BOMSerializer, BOMWithComponentsSerializer,
+    BOMComponentCreateUpdateSerializer, BOMComponentSerializer
 )
 
 class ProductWorkflowViewSet(viewsets.ModelViewSet):
@@ -312,127 +314,89 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
 
 class BOMViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
-    filter_backends = [DjangoFilterBackend, SearchFilter]
-    filterset_fields = ['product', 'version', 'is_active', 'is_approved']
-    search_fields = ['product__product_code', 'notes']
-    
+    filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
+    filterset_fields = ['product', 'is_active', 'is_approved']
+    search_fields = ['product__product_code', 'product__product_name', 'version', 'notes']
+    ordering_fields = ['version', 'created_at']
+    ordering = ['-created_at']
+
     def get_queryset(self):
         return BOM.objects.select_related(
-            'product',
-            'approved_by'
-        ).prefetch_related(
-            'components',
-            'components__product'
-        ).all()
-    
+            'product', 'approved_by'
+        ).prefetch_related('components')
+
     def get_serializer_class(self):
         if self.action in ['create', 'update', 'partial_update']:
-            return BOMCreateUpdateSerializer
-        elif self.action == 'create_with_components':
             return BOMWithComponentsSerializer
         return BOMSerializer
 
-    def create(self, request, *args, **kwargs):
-        print("\n=== BOM Creation Debug ===")
-        print("1. Request Data:", request.data)
-        print("2. Request Method:", request.method)
-        print("3. Content Type:", request.content_type)
-        print("4. Headers:", request.headers)
-        
-        serializer = self.get_serializer(data=request.data)
-        try:
-            print("5. Attempting validation...")
-            if not serializer.is_valid():
-                print("6. Validation failed!")
-                print("7. Validation errors:", serializer.errors)
-                return Response(
-                    serializer.errors,
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            print("6. Validation successful!")
-            print("7. Validated data:", serializer.validated_data)
-            
-            print("8. Attempting to save...")
-            instance = serializer.save()
-            print("9. BOM created successfully with ID:", instance.id)
-            
-            return Response(
-                BOMSerializer(instance).data,
-                status=status.HTTP_201_CREATED
-            )
-            
-        except serializers.ValidationError as e:
-            print("Error: Validation error occurred!")
-            print("Details:", e.detail)
-            return Response(
-                {"error": str(e.detail)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        except Exception as e:
-            print("Error: Unexpected error occurred!")
-            print("Type:", type(e))
-            print("Details:", str(e))
-            return Response(
-                {"error": str(e)},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-    def perform_destroy(self, instance):
-        instance.is_active = False
-        instance.save()
-    
     @action(detail=True, methods=['post'])
     def approve(self, request, pk=None):
-        """
-        Approve a BOM.
-        """
         bom = self.get_object()
-        
-        if bom.is_approved:
+        try:
+            if bom.approve(request.user):
+                return Response({'status': 'BOM approved'})
             return Response(
                 {'error': 'BOM is already approved'},
                 status=status.HTTP_400_BAD_REQUEST
             )
-            
-        bom.approve(request.user)
-        return Response(self.get_serializer(bom).data)
-    
-    @action(detail=True, methods=['post'])
-    def create_new_version(self, request, pk=None):
-        """
-        Create a new version of a BOM.
-        """
-        bom = self.get_object()
-        new_version = request.data.get('version')
-        
-        try:
-            new_bom = bom.create_new_version(new_version)
-            return Response(
-                self.get_serializer(new_bom).data,
-                status=status.HTTP_201_CREATED
-            )
-        except Exception as e:
+        except ValidationError as e:
             return Response(
                 {'error': str(e)},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-    @action(detail=False, methods=['post'])
-    @transaction.atomic
-    def create_with_components(self, request):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        bom = serializer.save()
-        return Response(
-            BOMSerializer(bom).data,
-            status=status.HTTP_201_CREATED
-        )
-    
-    def handle_exception(self, exc):
-        if isinstance(exc, ValidationError):
+    @action(detail=True, methods=['post'])
+    def create_new_version(self, request, pk=None):
+        bom = self.get_object()
+        new_version = request.data.get('version')
+        
+        try:
+            new_bom = bom.create_new_version(new_version)
+            serializer = self.get_serializer(new_bom)
+            return Response(serializer.data)
+        except ValidationError as e:
             return Response(
-                {'error': str(exc)},
+                {'error': str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+    @action(detail=True, methods=['get'])
+    def total_cost(self, request, pk=None):
+        bom = self.get_object()
+        total_cost = bom.get_total_cost()
+        return Response({'total_cost': total_cost})
+
+    @action(detail=True, methods=['get'])
+    def component_tree(self, request, pk=None):
+        bom = self.get_object()
+        max_level = request.query_params.get('max_level')
+        if max_level:
+            try:
+                max_level = int(max_level)
+            except ValueError:
+                return Response(
+                    {'error': 'max_level must be an integer'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+        
+        tree = bom.get_component_tree(max_level=max_level)
+        
+        def format_tree_node(node):
+            level, component, sub_components = node
+            return {
+                'level': level,
+                'component': BOMComponentSerializer(component).data,
+                'sub_components': [format_tree_node(sub) for sub in sub_components]
+            }
+        
+        formatted_tree = [format_tree_node(node) for node in tree]
+        return Response(formatted_tree)
+
+    def handle_exception(self, exc):
+        if isinstance(exc, DjangoValidationError):
+            return Response(
+                {'detail': str(exc)},
                 status=status.HTTP_400_BAD_REQUEST
             )
         return super().handle_exception(exc)
@@ -453,6 +417,22 @@ class BOMComponentViewSet(viewsets.ModelViewSet):
         if self.action in ['create', 'update', 'partial_update']:
             return BOMComponentCreateUpdateSerializer
         return BOMComponentSerializer
+    
+    def perform_create(self, serializer):
+        """Set the BOM from the URL parameter when creating a component."""
+        bom_pk = self.kwargs.get('bom_pk')
+        if bom_pk is None:
+            raise ValidationError("BOM ID is required when creating a component")
+        
+        try:
+            bom = BOM.objects.get(pk=bom_pk)
+        except BOM.DoesNotExist:
+            raise ValidationError(f"BOM with ID {bom_pk} does not exist")
+        
+        try:
+            serializer.save(bom=bom)
+        except Exception as e:
+            raise ValidationError(f"Failed to create BOM component: {str(e)}")
     
     def handle_exception(self, exc):
         if isinstance(exc, ValidationError):
