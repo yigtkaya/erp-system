@@ -20,224 +20,6 @@ class AxisCount(models.TextChoices):
     NONE = 'NONE', 'NONE'
 
 
-class BOM(BaseModel):
-    """
-    The BOM is associated with a product that is manufactured.
-    """
-    product = models.ForeignKey(
-        'inventory.Product',
-        on_delete=models.PROTECT,
-        related_name='boms'
-    )
-    version = models.CharField(max_length=20, default='1.0')
-    is_active = models.BooleanField(default=True)
-    is_approved = models.BooleanField(default=False)
-    approved_by = models.ForeignKey(
-        User, 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        blank=True, 
-        related_name='approved_boms'
-    )
-    approved_at = models.DateTimeField(null=True, blank=True)
-    parent_bom = models.ForeignKey(
-        'manufacturing.BOM',  # Fix: Use the full model reference
-        on_delete=models.SET_NULL, 
-        null=True, 
-        blank=True, 
-        related_name='derived_boms'
-    )
-    notes = models.TextField(blank=True, null=True)
-
-    class Meta:
-        verbose_name = "Bill of Materials"
-        verbose_name_plural = "Bills of Materials"
-        unique_together = ['product', 'version']
-        indexes = [
-            models.Index(fields=['product']),
-            models.Index(fields=['is_active']),
-            models.Index(fields=['is_approved']),
-        ]
-
-    def clean(self):
-        super().clean()
-        # Validate that Standard products cannot have BOMs
-        if self.product.product_type == ProductType.STANDARD_PART:
-            raise ValidationError("Standard products (bought externally) cannot have a BOM")
-        
-        # Validate version format
-        try:
-            major, minor = self.version.split('.')
-            int(major)
-            int(minor)
-        except ValueError:
-            raise ValidationError("Version must be in format 'major.minor' (e.g., '1.0')")
-
-    def approve(self, user):
-        """
-        Approve the BOM, setting approved_by and approved_at fields.
-        """
-        if self.is_approved:
-            return False
-        
-        # Validate that all components exist
-        if not self.components.exists():
-            raise ValidationError("Cannot approve BOM with no components")
-        
-        self.is_approved = True
-        self.approved_by = user
-        self.approved_at = timezone.now()
-        self.save()
-        return True
-    
-    def create_new_version(self, new_version=None):
-        """
-        Create a new version of this BOM.
-        
-        Args:
-            new_version: Optional version string. If not provided, increments the current version.
-            
-        Returns:
-            A new BOM instance with copied components.
-        """
-        if not new_version:
-            # Parse current version and increment
-            try:
-                major, minor = self.version.split('.')
-                new_version = f"{major}.{int(minor) + 1}"
-            except ValueError:
-                # If version format is not as expected, just append .1
-                new_version = f"{self.version}.1"
-        
-        # Validate new version format
-        try:
-            major, minor = new_version.split('.')
-            int(major)
-            int(minor)
-        except ValueError:
-            raise ValidationError("New version must be in format 'major.minor' (e.g., '1.0')")
-        
-        # Create new BOM
-        new_bom = BOM.objects.create(
-            product=self.product,
-            version=new_version,
-            is_active=True,
-            is_approved=False,  # New versions start unapproved
-            parent_bom=self,
-            notes=f"Derived from version {self.version}"
-        )
-        
-        # Copy all components
-        for component in self.components.all():
-            BOMComponent.objects.create(
-                bom=new_bom,
-                sequence_order=component.sequence_order,
-                quantity=component.quantity,
-                notes=component.notes,
-                product=component.product
-            )
-        
-        return new_bom
-
-    def get_total_cost(self):
-        """
-        Calculate the total cost of all components in the BOM.
-        """
-        total_cost = 0
-        for component in self.components.all():
-            component_cost = component.product.unit_cost * component.quantity
-            total_cost += component_cost
-        return total_cost
-
-    def get_component_tree(self, level=0, max_level=None):
-        """
-        Get a hierarchical representation of the BOM components.
-        
-        Args:
-            level: Current level in the tree (used internally)
-            max_level: Maximum depth to traverse
-            
-        Returns:
-            List of tuples (level, component, sub_components)
-        """
-        if max_level is not None and level >= max_level:
-            return []
-            
-        result = []
-        for component in self.components.all():
-            sub_components = []
-            if hasattr(component.product, 'boms'):
-                latest_bom = component.product.boms.filter(is_approved=True).order_by('-version').first()
-                if latest_bom:
-                    sub_components = latest_bom.get_component_tree(level + 1, max_level)
-            result.append((level, component, sub_components))
-        return result
-    
-    def __str__(self):
-        return f"{self.product.product_code} - v{self.version}"
-
-class BOMComponent(BaseModel):
-    """
-    A BOM component that represents a product used in manufacturing.
-    Each component must have a reference to a product and a quantity.
-    """
-    bom = models.ForeignKey(BOM, on_delete=models.CASCADE, related_name='components')
-    sequence_order = models.IntegerField()
-    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1.0)
-    notes = models.TextField(blank=True, null=True)
-    product = models.ForeignKey(
-        'inventory.Product',
-        on_delete=models.PROTECT,
-        help_text="Reference to the product used in this component"
-    )
-
-    class Meta:
-        ordering = ['sequence_order']
-        unique_together = [('bom', 'sequence_order')]
-        indexes = [
-            models.Index(fields=['bom']),
-            models.Index(fields=['sequence_order'])
-        ]
-
-    def clean(self):
-        super().clean()
-        # Check for duplicate sequence_order within the same BOM
-        if self.bom_id is not None and self.sequence_order is not None:
-            duplicate_exists = BOMComponent.objects.filter(
-                bom=self.bom,
-                sequence_order=self.sequence_order
-            ).exclude(pk=self.pk).exists()
-            
-            if duplicate_exists:
-                raise ValidationError({
-                    'sequence_order': f'A component with sequence order {self.sequence_order} already exists in this BOM.'
-                })
-
-    def save(self, *args, **kwargs):
-        self.clean()
-        super().save(*args, **kwargs)
-
-    def __str__(self):
-        return f"{self.product.product_code} x{self.quantity}"
-
-    def create_new_version(self, new_version=None):
-        """
-        Create a new version of this BOM.
-        """
-        # ... existing code ...
-        
-        # Copy all components
-        for component in self.components.all():
-            BOMComponent.objects.create(
-                bom=new_bom,
-                sequence_order=component.sequence_order,
-                quantity=component.quantity,
-                notes=component.notes,
-                product=component.product
-            )
-        
-        return new_bom
-
 class MachineType(models.TextChoices):
     PROCESSING_CENTER = 'İşleme Merkezi', 'İşleme Merkezi'
     CNC_TORNA = 'CNC Torna Merkezi', 'CNC Torna Merkezi'
@@ -309,6 +91,158 @@ class ManufacturingProcess(BaseModel):
 
     def __str__(self):
         return f"{self.process_code} - {self.process_name}"
+
+class BOM(BaseModel):
+    """
+    The BOM is associated with a product that is manufactured.
+    """
+    product = models.ForeignKey(
+        'inventory.Product',
+        on_delete=models.PROTECT
+    )
+    version = models.CharField(max_length=20, default='1.0')
+    is_active = models.BooleanField(default=True)
+    is_approved = models.BooleanField(default=False)
+    approved_by = models.ForeignKey(
+        User, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='approved_boms'
+    )
+    approved_at = models.DateTimeField(null=True, blank=True)
+    parent_bom = models.ForeignKey(
+        'self', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='derived_boms',
+        help_text="The BOM this version was derived from"
+    )
+    notes = models.TextField(blank=True, null=True)
+
+    class Meta:
+        verbose_name = "Bill of Materials"
+        verbose_name_plural = "Bills of Materials"
+        unique_together = ['product', 'version']
+        indexes = [
+            models.Index(fields=['product']),
+            models.Index(fields=['is_active']),
+            models.Index(fields=['is_approved']),
+        ]
+
+    def clean(self):
+        super().clean()
+        # Only validate that Standard products cannot have BOMs
+        if self.product.product_type == ProductType.STANDARD_PART:
+            raise ValidationError("Standard products (bought externally) cannot have a BOM")
+
+    def approve(self, user):
+        """
+        Approve the BOM, setting approved_by and approved_at fields.
+        """
+        if self.is_approved:
+            return False
+        
+        self.is_approved = True
+        self.approved_by = user
+        self.approved_at = timezone.now()
+        self.save()
+        return True
+    
+    def create_new_version(self, new_version=None):
+        """
+        Create a new version of this BOM.
+        
+        Args:
+            new_version: Optional version string. If not provided, increments the current version.
+            
+        Returns:
+            A new BOM instance with copied components.
+        """
+        if not new_version:
+            # Parse current version and increment
+            try:
+                major, minor = self.version.split('.')
+                new_version = f"{major}.{int(minor) + 1}"
+            except ValueError:
+                # If version format is not as expected, just append .1
+                new_version = f"{self.version}.1"
+        
+        # Create new BOM
+        new_bom = BOM.objects.create(
+            product=self.product,
+            version=new_version,
+            is_active=True,
+            is_approved=False,  # New versions start unapproved
+            parent_bom=self,
+            notes=f"Derived from version {self.version}"
+        )
+        
+        # Copy all components
+        for component in self.components.all():
+            BOMComponent.objects.create(
+                bom=new_bom,
+                sequence_order=component.sequence_order,
+                quantity=component.quantity,
+                notes=component.notes,
+                lead_time_days=component.lead_time_days,
+                product=component.product
+            )
+        
+        return new_bom
+    
+    def __str__(self):
+        return f"{self.product.product_code} - v{self.version}"
+
+class BOMComponent(BaseModel):
+    """
+    A BOM component that represents a product used in manufacturing.
+    Each component must have a reference to a product and a quantity.
+    """
+    bom = models.ForeignKey(BOM, on_delete=models.CASCADE, related_name='components')
+    sequence_order = models.IntegerField()
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=1.0)
+    notes = models.TextField(blank=True, null=True)
+    lead_time_days = models.IntegerField(
+        null=True, 
+        blank=True,
+        help_text="Expected lead time in days for this component"
+    )
+    product = models.ForeignKey(
+        'inventory.Product',
+        on_delete=models.PROTECT,
+        help_text="Reference to the product used in this component"
+    )
+
+    class Meta:
+        ordering = ['sequence_order']
+        unique_together = [('bom', 'sequence_order')]
+        indexes = [
+            models.Index(fields=['bom']),
+            models.Index(fields=['sequence_order'])
+        ]
+
+    def clean(self):
+        super().clean()
+        # Check for duplicate sequence_order within the same BOM
+        if self.bom_id is not None and self.sequence_order is not None:
+            duplicate_exists = BOMComponent.objects.filter(
+                bom=self.bom,
+                sequence_order=self.sequence_order
+            ).exclude(pk=self.pk).exists()
+            
+            if duplicate_exists:
+                raise ValidationError({
+                    'sequence_order': f'A component with sequence order {self.sequence_order} already exists in this BOM.'
+                })
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.product.product_code} x{self.quantity}"
 
 class WorkflowStatus(models.TextChoices):
     DRAFT = 'DRAFT', 'Draft'
