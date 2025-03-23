@@ -112,7 +112,7 @@ class SalesOrderItem(models.Model):
 
 class Shipping(BaseModel):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    shipping_no = models.CharField(max_length=50, unique=True)
+    shipping_no = models.CharField(max_length=50)
     shipping_date = models.DateField()
     order = models.ForeignKey(SalesOrder, on_delete=models.CASCADE, related_name='shipments')
     order_item = models.ForeignKey(SalesOrderItem, on_delete=models.CASCADE, related_name='shipments')
@@ -127,6 +127,7 @@ class Shipping(BaseModel):
         ordering = ['-shipping_date']
         verbose_name = 'Shipping'
         verbose_name_plural = 'Shippings'
+        unique_together = [['shipping_no', 'order']]
 
     def clean(self):
         super().clean()

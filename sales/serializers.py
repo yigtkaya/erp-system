@@ -261,6 +261,28 @@ class ShippingSerializer(serializers.ModelSerializer):
             'quantity', 'package_number', 'shipping_note'
         ]
 
+    def validate(self, data):
+        # Validate shipping_no uniqueness per order
+        shipping_no = data.get('shipping_no')
+        order = data.get('order')
+        
+        # Skip validation if either shipping_no or order is not provided
+        if not shipping_no or not order:
+            return data
+            
+        # Check if shipping_no exists for this order
+        # Exclude the current instance for updates
+        query = Shipping.objects.filter(shipping_no=shipping_no, order=order)
+        if self.instance:
+            query = query.exclude(pk=self.instance.pk)
+            
+        if query.exists():
+            raise serializers.ValidationError(
+                {"shipping_no": f"Shipping number '{shipping_no}' already exists for this order."}
+            )
+            
+        return data
+
     def create(self, validated_data):
         with atomic():
             order_item = validated_data['order_item']
