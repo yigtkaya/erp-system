@@ -127,7 +127,7 @@ class Shipping(BaseModel):
         ordering = ['-shipping_date']
         verbose_name = 'Shipping'
         verbose_name_plural = 'Shippings'
-        unique_together = [['shipping_no', 'order']]
+        unique_together = [['shipping_no', 'order', 'order_item']]
 
     def clean(self):
         super().clean()
