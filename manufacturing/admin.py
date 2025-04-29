@@ -22,7 +22,7 @@ class ProcessConfigInline(admin.TabularInline):
     model = ProcessConfig
     extra = 0
     fields = [
-        'process', 'version', 'status', 'sequence_order', 'stock_code',
+        'process', 'version', 'status', 'sequence_order',
         'tool', 'control_gauge', 'fixture', 'axis_count'
     ]
     ordering = ['sequence_order']
@@ -48,13 +48,12 @@ class ProductWorkflowAdmin(admin.ModelAdmin):
 class ProcessConfigAdmin(admin.ModelAdmin):
     list_display = [
         'workflow', 'process', 'version', 'status',
-        'sequence_order', 'stock_code'
+        'sequence_order'
     ]
     list_filter = ['status', 'axis_count']
     search_fields = [
         'workflow__product__product_code',
-        'process__process_code',
-        'stock_code'
+        'process__process_code'
     ]
     ordering = ['workflow', 'sequence_order']
     readonly_fields = ['effective_date']

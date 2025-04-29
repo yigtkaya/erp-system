@@ -57,7 +57,7 @@ class ToolAdmin(admin.ModelAdmin):
     list_filter = ('tool_type', 'status', 'tool_material')
     search_fields = ('stock_code', 'product_code', 'description')
     ordering = ('stock_code',)
-    readonly_fields = ('updated_at',)
+    readonly_fields = ('modified_at', 'created_at',)
     fieldsets = (
         ('Basic Information', {
             'fields': ('stock_code', 'product_code', 'supplier_name', 'tool_type', 'status', 'description')
@@ -76,7 +76,7 @@ class ToolAdmin(admin.ModelAdmin):
             'fields': ('quantity',)
         }),
         ('System Fields', {
-            'fields': ('updated_at',),
+            'fields': ('created_at', 'modified_at', 'created_by', 'modified_by'),
             'classes': ('collapse',)
         }),
     )
@@ -87,7 +87,7 @@ class HolderAdmin(admin.ModelAdmin):
     list_filter = ('holder_type', 'status', 'water_cooling', 'distance_cooling')
     search_fields = ('stock_code', 'product_code', 'description')
     ordering = ('stock_code',)
-    readonly_fields = ('updated_at',)
+    readonly_fields = ('modified_at', 'created_at',)
     fieldsets = (
         ('Basic Information', {
             'fields': ('stock_code', 'product_code', 'supplier_name', 'holder_type', 'status', 'description')
@@ -102,7 +102,7 @@ class HolderAdmin(admin.ModelAdmin):
             'fields': ('row', 'column', 'table_id')
         }),
         ('System Fields', {
-            'fields': ('updated_at',),
+            'fields': ('created_at', 'modified_at', 'created_by', 'modified_by'),
             'classes': ('collapse',)
         }),
     )

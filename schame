@@ -1,0 +1,1103 @@
+# Database Schema for the ERP System
+
+# --- Django Auth & Core ---
+
+# auth_user (Derived from Django's AbstractUser, extended in erp_core.User)
+# Stores user account information.
+# NOTE: PK type depends on DEFAULT_AUTO_FIELD, assumed BIGINT here.
+TABLE auth_user (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    password VARCHAR(128) NOT NULL,
+    last_login DATETIME NULL,
+    is_superuser BOOLEAN NOT NULL,
+    username VARCHAR(150) NOT NULL UNIQUE,
+    first_name VARCHAR(150) NOT NULL,
+    last_name VARCHAR(150) NOT NULL,
+    email VARCHAR(254) NOT NULL UNIQUE,
+    is_staff BOOLEAN NOT NULL,
+    is_active BOOLEAN NOT NULL,
+    date_joined DATETIME NOT NULL,
+    # --- erp_core.User fields ---
+    role VARCHAR(20) NOT NULL DEFAULT 'VIEWER' CHECK (role IN ('ADMIN', 'ENGINEER', 'OPERATOR', 'VIEWER')),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+);
+
+# auth_group
+# Standard Django group model.
+TABLE auth_group (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(150) NOT NULL UNIQUE
+);
+
+# auth_permission
+# Standard Django permission model.
+TABLE auth_permission (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(255) NOT NULL,
+    content_type_id INT NOT NULL,
+    codename VARCHAR(100) NOT NULL,
+    FOREIGN KEY (content_type_id) REFERENCES django_content_type(id),
+    UNIQUE (content_type_id, codename)
+);
+
+# auth_user_groups
+# Many-to-many relationship between users and groups.
+TABLE auth_user_groups (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    group_id INT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES auth_user(id),
+    FOREIGN KEY (group_id) REFERENCES auth_group(id),
+    UNIQUE (user_id, group_id)
+);
+
+# auth_user_user_permissions
+# Many-to-many relationship between users and specific permissions.
+TABLE auth_user_user_permissions (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    permission_id INT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES auth_user(id),
+    FOREIGN KEY (permission_id) REFERENCES auth_permission(id),
+    UNIQUE (user_id, permission_id)
+);
+
+# django_content_type
+# Standard Django model tracking content types (models).
+TABLE django_content_type (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    app_label VARCHAR(100) NOT NULL,
+    model VARCHAR(100) NOT NULL,
+    UNIQUE (app_label, model)
+);
+
+# django_session
+# Standard Django session storage.
+TABLE django_session (
+    session_key VARCHAR(40) PRIMARY KEY,
+    session_data TEXT NOT NULL,
+    expire_date DATETIME NOT NULL
+);
+
+# django_migrations
+# Standard Django migration tracking.
+TABLE django_migrations (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    app VARCHAR(255) NOT NULL,
+    name VARCHAR(255) NOT NULL,
+    applied DATETIME NOT NULL
+);
+
+# django_admin_log
+# Standard Django admin action logging.
+TABLE django_admin_log (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    action_time DATETIME NOT NULL,
+    object_id TEXT NULL,
+    object_repr VARCHAR(200) NOT NULL,
+    action_flag SMALLINT UNSIGNED NOT NULL CHECK (action_flag >= 0),
+    change_message TEXT NOT NULL,
+    content_type_id INT NULL,
+    user_id BIGINT NOT NULL,
+    FOREIGN KEY (content_type_id) REFERENCES django_content_type(id),
+    FOREIGN KEY (user_id) REFERENCES auth_user(id)
+);
+
+
+# --- ERP Core App (erp_core) ---
+
+# erp_core_department
+# Represents organizational departments.
+TABLE erp_core_department (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL,
+    description TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+# erp_core_user_departments
+# Many-to-many relationship between users and departments.
+TABLE erp_core_user_departments (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    department_id BIGINT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES auth_user(id),
+    FOREIGN KEY (department_id) REFERENCES erp_core_department(id),
+    UNIQUE (user_id, department_id)
+);
+
+# erp_core_userprofile
+# Extends the User model with additional profile information.
+TABLE erp_core_userprofile (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL UNIQUE,
+    department_id BIGINT NULL,
+    phone_number VARCHAR(20) NOT NULL,
+    employee_id VARCHAR(50) NOT NULL UNIQUE,
+    is_department_head BOOLEAN NOT NULL DEFAULT FALSE,
+    FOREIGN KEY (user_id) REFERENCES auth_user(id) ON DELETE CASCADE,
+    FOREIGN KEY (department_id) REFERENCES erp_core_department(id) ON DELETE SET NULL,
+    INDEX (employee_id) -- Ordering specified in Meta
+);
+
+# erp_core_customer
+# Represents customers.
+TABLE erp_core_customer (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    code VARCHAR(20) NOT NULL UNIQUE,
+    name VARCHAR(100) NOT NULL,
+    # --- BaseModel fields ---
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT
+);
+
+# erp_core_rolepermission
+# Defines permissions associated with specific user roles.
+TABLE erp_core_rolepermission (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    role VARCHAR(20) NOT NULL CHECK (role IN ('ADMIN', 'ENGINEER', 'OPERATOR', 'VIEWER')),
+    permission_id INT NOT NULL,
+    FOREIGN KEY (permission_id) REFERENCES auth_permission(id) ON DELETE CASCADE,
+    UNIQUE (role, permission_id)
+);
+
+
+# --- Inventory App (inventory) ---
+
+# inventory_inventorycategory
+# Defines categories for inventory items.
+TABLE inventory_inventorycategory (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(20) NOT NULL UNIQUE CHECK (name IN ('HAMMADDE', 'PROSES', 'MAMUL', 'KARANTINA', 'HURDA', 'TAKIMHANE')),
+    description TEXT NULL
+);
+
+# inventory_unitofmeasure
+# Defines units of measure for materials/products.
+TABLE inventory_unitofmeasure (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    unit_code VARCHAR(10) NOT NULL UNIQUE,
+    unit_name VARCHAR(50) NOT NULL
+);
+
+# inventory_product
+# Represents manufactured or purchased products/parts.
+TABLE inventory_product (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    product_code VARCHAR(50) NOT NULL UNIQUE,
+    product_name VARCHAR(100) NOT NULL,
+    project_name VARCHAR(100) NULL,
+    product_type VARCHAR(20) NOT NULL CHECK (product_type IN ('MONTAGED', 'SEMI', 'SINGLE', 'STANDARD_PART', 'SPRING')),
+    multicode INT NULL CHECK (multicode >= -2147483648 AND multicode <= 2147483647),
+    description TEXT NULL,
+    current_stock INT NOT NULL DEFAULT 0,
+    customer_id BIGINT NULL,
+    inventory_category_id BIGINT NULL,
+    # --- BaseModel fields ---
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (customer_id) REFERENCES erp_core_customer(id) ON DELETE PROTECT,
+    FOREIGN KEY (inventory_category_id) REFERENCES inventory_inventorycategory(id) ON DELETE PROTECT,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    INDEX (product_code) -- Ordering specified in Meta
+);
+
+# inventory_technicaldrawing
+# Stores technical drawings associated with products.
+TABLE inventory_technicaldrawing (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    product_id BIGINT NOT NULL,
+    version VARCHAR(20) NOT NULL,
+    drawing_code VARCHAR(50) NOT NULL,
+    drawing_file VARCHAR(500) NULL,
+    effective_date DATE NOT NULL,
+    is_current BOOLEAN NOT NULL DEFAULT TRUE,
+    revision_notes VARCHAR(500) NULL,
+    approved_by_id BIGINT NULL,
+    # --- BaseModel fields ---
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (product_id) REFERENCES inventory_product(id) ON DELETE CASCADE,
+    FOREIGN KEY (approved_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    UNIQUE (product_id, version),
+    INDEX (product_id, is_current)
+);
+
+# inventory_rawmaterial
+# Represents raw materials used in production.
+TABLE inventory_rawmaterial (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    material_code VARCHAR(50) NOT NULL UNIQUE,
+    material_name VARCHAR(100) NOT NULL,
+    current_stock DECIMAL(10, 2) NOT NULL DEFAULT 0.00,
+    unit_id BIGINT NOT NULL,
+    inventory_category_id BIGINT NULL,
+    material_type VARCHAR(10) NOT NULL DEFAULT 'STEEL' CHECK (material_type IN ('STEEL', 'ALUMINUM')),
+    width FLOAT NULL CHECK (width >= 0.0),
+    height FLOAT NULL CHECK (height >= 0.0),
+    thickness FLOAT NULL CHECK (thickness >= 0.0),
+    diameter_mm FLOAT NULL CHECK (diameter_mm >= 0.0),
+    # --- BaseModel fields ---
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (unit_id) REFERENCES inventory_unitofmeasure(id) ON DELETE PROTECT,
+    FOREIGN KEY (inventory_category_id) REFERENCES inventory_inventorycategory(id) ON DELETE PROTECT,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT
+);
+
+# inventory_inventorytransaction
+# Logs changes in inventory levels for products and raw materials.
+TABLE inventory_inventorytransaction (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    product_id BIGINT NULL,
+    material_id BIGINT NULL,
+    quantity_change DECIMAL(10, 2) NOT NULL,
+    transaction_type VARCHAR(20) NOT NULL CHECK (transaction_type IN ('IN', 'OUT', 'ADJUST', 'RETURN', 'TRANSFER')),
+    transaction_date DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    performed_by_id BIGINT NOT NULL,
+    verified_by_id BIGINT NULL,
+    notes TEXT NULL,
+    from_category_id BIGINT NULL,
+    to_category_id BIGINT NULL,
+    reference_id VARCHAR(50) NULL,
+    # --- BaseModel fields ---
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (product_id) REFERENCES inventory_product(id) ON DELETE PROTECT,
+    FOREIGN KEY (material_id) REFERENCES inventory_rawmaterial(id) ON DELETE PROTECT,
+    FOREIGN KEY (performed_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (verified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (from_category_id) REFERENCES inventory_inventorycategory(id) ON DELETE PROTECT,
+    FOREIGN KEY (to_category_id) REFERENCES inventory_inventorycategory(id) ON DELETE PROTECT,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    CHECK ( (product_id IS NOT NULL AND material_id IS NULL) OR (product_id IS NULL AND material_id IS NOT NULL) ),
+    INDEX (product_id),
+    INDEX (material_id),
+    INDEX (transaction_type),
+    INDEX (reference_id, transaction_type)
+);
+
+# inventory_tool
+# Represents tools used in manufacturing.
+TABLE inventory_tool (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    stock_code VARCHAR(50) NOT NULL UNIQUE,
+    supplier_name VARCHAR(100) NOT NULL,
+    product_code VARCHAR(50) NOT NULL,
+    unit_price_tl DECIMAL(10, 2) NOT NULL,
+    unit_price_euro DECIMAL(10, 2) NOT NULL,
+    unit_price_usd DECIMAL(10, 2) NOT NULL,
+    tool_insert_code VARCHAR(100) NOT NULL,
+    tool_material VARCHAR(100) NOT NULL,
+    tool_diameter DECIMAL(10, 2) NOT NULL,
+    tool_length DECIMAL(10, 2) NOT NULL,
+    tool_width DECIMAL(10, 2) NOT NULL,
+    tool_height DECIMAL(10, 2) NOT NULL,
+    tool_angle DECIMAL(10, 2) NOT NULL,
+    tool_radius DECIMAL(10, 2) NOT NULL,
+    tool_connection_diameter DECIMAL(10, 2) NOT NULL,
+    tool_type VARCHAR(50) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'IN_USE', 'DAMAGED', 'UNDER_MAINTENANCE', 'RETIRED')),
+    row INT NOT NULL,
+    column INT NOT NULL,
+    table_id UUID NOT NULL,
+    description TEXT NULL,
+    quantity DECIMAL(10, 2) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    INDEX (stock_code),
+    INDEX (tool_type),
+    INDEX (status)
+);
+
+# inventory_holder
+# Represents tool holders used in machines.
+TABLE inventory_holder (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    stock_code VARCHAR(50) NOT NULL UNIQUE,
+    supplier_name VARCHAR(100) NOT NULL,
+    product_code VARCHAR(50) NOT NULL,
+    unit_price_tl DECIMAL(10, 2) NOT NULL,
+    unit_price_euro DECIMAL(10, 2) NOT NULL,
+    unit_price_usd DECIMAL(10, 2) NOT NULL,
+    holder_type VARCHAR(50) NOT NULL,
+    pulley_type VARCHAR(50) NOT NULL,
+    water_cooling BOOLEAN NOT NULL DEFAULT FALSE,
+    distance_cooling BOOLEAN NOT NULL DEFAULT FALSE,
+    tool_connection_diameter DECIMAL(10, 2) NOT NULL,
+    holder_type_enum VARCHAR(50) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'IN_USE', 'DAMAGED', 'UNDER_MAINTENANCE', 'RETIRED')),
+    row INT NOT NULL,
+    column INT NOT NULL,
+    table_id UUID NOT NULL,
+    description TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    INDEX (stock_code),
+    INDEX (holder_type),
+    INDEX (status)
+);
+
+# inventory_fixture
+# Represents fixtures used in manufacturing processes.
+TABLE inventory_fixture (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    code VARCHAR(50) NOT NULL UNIQUE,
+    name TEXT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'AKTIF' CHECK (status IN ('AKTIF', 'PASIF')),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    INDEX (code),
+    INDEX (status)
+);
+
+# inventory_controlgauge
+# Represents control gauges used for quality checks.
+TABLE inventory_controlgauge (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    stock_code VARCHAR(50) NOT NULL UNIQUE,
+    stock_name VARCHAR(100) NOT NULL,
+    stock_type VARCHAR(50) NULL,
+    serial_number VARCHAR(100) NULL,
+    brand VARCHAR(100) NULL,
+    model VARCHAR(100) NULL,
+    measuring_range VARCHAR(100) NULL,
+    resolution VARCHAR(50) NULL,
+    calibration_made_by VARCHAR(100) NULL,
+    calibration_date DATE NULL,
+    calibration_per_year VARCHAR(50) NOT NULL DEFAULT '1 / Yıl',
+    upcoming_calibration_date DATE NULL,
+    certificate_no VARCHAR(50) NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'KULLANILMIYOR' CHECK (status IN ('UYGUN', 'KULLANILMIYOR', 'HURDA', 'KAYIP', 'BAKIMDA', 'KALIBRASYONDA')),
+    current_location VARCHAR(100) NULL,
+    scrap_lost_date DATE NULL,
+    description TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    INDEX (stock_code),
+    INDEX (status),
+    INDEX (upcoming_calibration_date)
+);
+
+
+# --- Sales App (sales) ---
+
+# sales_salesorder
+# Represents customer sales orders.
+TABLE sales_salesorder (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    order_number VARCHAR(50) NOT NULL UNIQUE,
+    customer_id BIGINT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    approved_by_id BIGINT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'CLOSED')),
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (customer_id) REFERENCES erp_core_customer(id) ON DELETE PROTECT,
+    FOREIGN KEY (approved_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    INDEX (order_number),
+    INDEX (status, created_at),
+    INDEX (created_at DESC)
+);
+
+# sales_salesorderitem
+# Represents individual items within a sales order.
+TABLE sales_salesorderitem (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    sales_order_id BIGINT NOT NULL,
+    product_id BIGINT NOT NULL,
+    ordered_quantity INT NOT NULL,
+    fulfilled_quantity INT NOT NULL DEFAULT 0,
+    receiving_date DATE NULL,
+    deadline_date DATE NULL,
+    kapsam_deadline_date DATE NULL,
+    FOREIGN KEY (sales_order_id) REFERENCES sales_salesorder(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES inventory_product(id) ON DELETE PROTECT,
+    CHECK (fulfilled_quantity <= ordered_quantity)
+);
+
+# sales_shipping
+# Tracks shipments made against sales order items.
+TABLE sales_shipping (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    shipping_no VARCHAR(50) NOT NULL,
+    shipping_date DATE NOT NULL,
+    order_id BIGINT NOT NULL,
+    order_item_id BIGINT NOT NULL,
+    quantity INT UNSIGNED NOT NULL CHECK (quantity > 0),
+    package_number INT UNSIGNED NOT NULL DEFAULT 1 CHECK (package_number > 0),
+    shipping_note TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (order_id) REFERENCES sales_salesorder(id) ON DELETE CASCADE,
+    FOREIGN KEY (order_item_id) REFERENCES sales_salesorderitem(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    UNIQUE (shipping_no, order_id, order_item_id),
+    INDEX (shipping_date DESC)
+);
+
+
+# --- Purchase App (purchase) ---
+
+# purchase_supplier
+# Represents suppliers of materials or standard parts.
+TABLE purchase_supplier (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL,
+    code VARCHAR(50) NOT NULL UNIQUE,
+    contact_email VARCHAR(254) NOT NULL,
+    payment_terms TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT
+);
+
+# purchase_purchaseorder
+# Represents purchase orders placed with suppliers.
+TABLE purchase_purchaseorder (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    order_number VARCHAR(50) NOT NULL UNIQUE,
+    supplier_id BIGINT NOT NULL,
+    expected_delivery DATE NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'PO_ISSUED', 'PART_RECEIVED', 'COMPLETED', 'CANCELLED')),
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (supplier_id) REFERENCES purchase_supplier(id) ON DELETE PROTECT,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT
+);
+
+# purchase_purchaseorderitem
+# Represents individual items within a purchase order.
+TABLE purchase_purchaseorderitem (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    purchase_order_id BIGINT NOT NULL,
+    product_id BIGINT NOT NULL,
+    quantity INT NOT NULL,
+    unit_price DECIMAL(10, 2) NOT NULL,
+    received_quantity INT NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (purchase_order_id) REFERENCES purchase_purchaseorder(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES inventory_product(id) ON DELETE PROTECT,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    INDEX (created_at)
+);
+
+
+# --- Manufacturing App (manufacturing) ---
+
+# manufacturing_machine
+# Represents machinery used in production.
+TABLE manufacturing_machine (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    machine_code VARCHAR(50) NOT NULL UNIQUE,
+    machine_type VARCHAR(50) NOT NULL CHECK (machine_type IN ('İşleme Merkezi', 'CNC Torna Merkezi', 'CNC Kayar Otomat', 'Yok')),
+    brand VARCHAR(50) NULL,
+    model VARCHAR(50) NULL,
+    axis_count VARCHAR(20) NULL CHECK (axis_count IN ('9EKSEN', '8.5EKSEN', '5EKSEN', '4EKSEN', '3EKSEN', '2EKSEN', '1EKSEN', 'NONE')),
+    internal_cooling DECIMAL(10, 2) NULL,
+    motor_power_kva DECIMAL(10, 2) NULL,
+    holder_type VARCHAR(50) NULL,
+    spindle_motor_power_10_percent_kw DECIMAL(10, 2) NULL,
+    spindle_motor_power_30_percent_kw DECIMAL(10, 2) NULL,
+    power_hp DECIMAL(10, 2) NULL,
+    spindle_speed_rpm INT NULL,
+    tool_count INT NULL,
+    nc_control_unit VARCHAR(50) NULL,
+    manufacturing_year DATE NULL,
+    serial_number VARCHAR(100) UNIQUE NULL,
+    machine_weight_kg DECIMAL(10, 2) NULL,
+    max_part_size VARCHAR(50) NULL,
+    description TEXT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'AVAILABLE' CHECK (status IN ('AVAILABLE', 'IN_USE', 'MAINTENANCE', 'RETIRED')),
+    maintenance_interval INT NOT NULL DEFAULT 90,
+    last_maintenance_date DATE NULL,
+    next_maintenance_date DATE NULL,
+    maintenance_notes TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    INDEX (status),
+    INDEX (machine_type)
+);
+
+# manufacturing_manufacturingprocess
+# Defines standard manufacturing processes.
+TABLE manufacturing_manufacturingprocess (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    process_code VARCHAR(50) NOT NULL UNIQUE,
+    process_name VARCHAR(100) NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    INDEX (process_code)
+);
+
+# manufacturing_bom
+# Bill of Materials for a specific product version.
+TABLE manufacturing_bom (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    product_id BIGINT NOT NULL,
+    version VARCHAR(20) NOT NULL DEFAULT '1.0',
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    is_approved BOOLEAN NOT NULL DEFAULT FALSE,
+    approved_by_id BIGINT NULL,
+    approved_at DATETIME NULL,
+    parent_bom_id BIGINT NULL,
+    notes TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (product_id) REFERENCES inventory_product(id) ON DELETE PROTECT,
+    FOREIGN KEY (approved_by_id) REFERENCES auth_user(id) ON DELETE SET NULL,
+    FOREIGN KEY (parent_bom_id) REFERENCES manufacturing_bom(id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    UNIQUE (product_id, version),
+    INDEX (product_id),
+    INDEX (is_active),
+    INDEX (is_approved)
+);
+
+# manufacturing_bomcomponent
+# Components (materials or sub-products) required for a BOM.
+TABLE manufacturing_bomcomponent (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    bom_id BIGINT NOT NULL,
+    sequence_order INT NOT NULL,
+    quantity DECIMAL(10, 2) NOT NULL DEFAULT 1.00,
+    notes TEXT NULL,
+    lead_time_days INT NULL,
+    product_id BIGINT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (bom_id) REFERENCES manufacturing_bom(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES inventory_product(id) ON DELETE PROTECT,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    UNIQUE (bom_id, sequence_order),
+    INDEX (bom_id),
+    INDEX (sequence_order)
+);
+
+# manufacturing_productworkflow
+# Versioned manufacturing workflow for a product.
+TABLE manufacturing_productworkflow (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    product_id BIGINT NOT NULL,
+    version VARCHAR(20) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'ACTIVE', 'ARCHIVED')),
+    effective_date DATE NULL,
+    notes TEXT NULL,
+    created_by_id BIGINT NOT NULL,
+    approved_by_id BIGINT NULL,
+    approved_at DATETIME NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (product_id) REFERENCES inventory_product(id) ON DELETE PROTECT,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (approved_by_id) REFERENCES auth_user(id) ON DELETE SET NULL,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    UNIQUE (product_id, version),
+    INDEX (product_id, status),
+    INDEX (product_id, version)
+);
+
+# manufacturing_processconfig
+# Configuration for a specific process step within a product workflow version.
+TABLE manufacturing_processconfig (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    workflow_id BIGINT NULL,
+    process_id BIGINT NULL,
+    version VARCHAR(20) NOT NULL DEFAULT '1.0',
+    status VARCHAR(20) NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT', 'ACTIVE', 'ARCHIVED')),
+    sequence_order INT NOT NULL DEFAULT 1,
+    tool_id UUID NULL,
+    control_gauge_id UUID NULL,
+    fixture_id UUID NULL,
+    axis_count VARCHAR(20) NULL CHECK (axis_count IN ('9EKSEN', '8.5EKSEN', '5EKSEN', '4EKSEN', '3EKSEN', '2EKSEN', '1EKSEN', 'NONE')),
+    machine_time INT NULL,
+    setup_time INT NULL,
+    net_time INT NULL,
+    number_of_bindings INT NOT NULL DEFAULT 1,
+    effective_date DATE NULL,
+    description TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (workflow_id) REFERENCES manufacturing_productworkflow(id) ON DELETE CASCADE,
+    FOREIGN KEY (process_id) REFERENCES manufacturing_manufacturingprocess(id) ON DELETE PROTECT,
+    FOREIGN KEY (tool_id) REFERENCES inventory_tool(id) ON DELETE PROTECT,
+    FOREIGN KEY (control_gauge_id) REFERENCES inventory_controlgauge(id) ON DELETE PROTECT,
+    FOREIGN KEY (fixture_id) REFERENCES inventory_fixture(id) ON DELETE PROTECT,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    UNIQUE (workflow_id, process_id, version),
+    UNIQUE (workflow_id, sequence_order, version),
+    INDEX (workflow_id, sequence_order),
+    INDEX (workflow_id, process_id),
+    INDEX (status),
+    INDEX (version),
+    INDEX (tool_id),
+    INDEX (control_gauge_id),
+    INDEX (fixture_id)
+);
+
+
+# manufacturing_workorder
+# Main work order, often linked to a sales order item.
+TABLE manufacturing_workorder (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    order_number VARCHAR(50) NOT NULL UNIQUE,
+    sales_order_item_id BIGINT NOT NULL,
+    bom_id BIGINT NOT NULL,
+    quantity INT NOT NULL,
+    planned_start DATE NOT NULL,
+    planned_end DATE NOT NULL,
+    actual_start DATETIME NULL,
+    actual_end DATETIME NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PLANNED' CHECK (status IN ('PLANNED', 'IN_PROGRESS', 'COMPLETED', 'DELAYED')),
+    priority INT NOT NULL DEFAULT 1,
+    notes TEXT NULL,
+    completion_percentage DECIMAL(5, 2) NOT NULL DEFAULT 0.00,
+    assigned_to_id BIGINT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (sales_order_item_id) REFERENCES sales_salesorderitem(id) ON DELETE PROTECT,
+    FOREIGN KEY (bom_id) REFERENCES manufacturing_bom(id) ON DELETE PROTECT,
+    FOREIGN KEY (assigned_to_id) REFERENCES auth_user(id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    INDEX (status),
+    INDEX (priority),
+    INDEX (planned_start),
+    INDEX (planned_end)
+);
+
+# manufacturing_workorderstatuschange
+# Log of status changes for a work order.
+TABLE manufacturing_workorderstatuschange (
+     id BIGINT PRIMARY KEY AUTO_INCREMENT,
+     work_order_id BIGINT NOT NULL,
+     from_status VARCHAR(20) NOT NULL CHECK (from_status IN ('PLANNED', 'IN_PROGRESS', 'COMPLETED', 'DELAYED')),
+     to_status VARCHAR(20) NOT NULL CHECK (to_status IN ('PLANNED', 'IN_PROGRESS', 'COMPLETED', 'DELAYED')),
+     changed_by_id BIGINT NULL,
+     changed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     notes TEXT NULL,
+     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     created_by_id BIGINT NULL,
+     modified_by_id BIGINT NULL,
+     FOREIGN KEY (work_order_id) REFERENCES manufacturing_workorder(id) ON DELETE CASCADE,
+     FOREIGN KEY (changed_by_id) REFERENCES auth_user(id) ON DELETE SET NULL,
+     FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+     FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+     INDEX (work_order_id),
+     INDEX (changed_at DESC)
+);
+
+# manufacturing_subworkorder
+# Sub-tasks within a main work order, linked to BOM components.
+TABLE manufacturing_subworkorder (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    parent_work_order_id BIGINT NOT NULL,
+    bom_component_id BIGINT NOT NULL,
+    quantity INT NOT NULL,
+    planned_start DATE NOT NULL,
+    planned_end DATE NOT NULL,
+    actual_start DATETIME NULL,
+    actual_end DATETIME NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PLANNED' CHECK (status IN ('PLANNED', 'IN_PROGRESS', 'COMPLETED', 'DELAYED')),
+    output_quantity INT NULL,
+    scrap_quantity INT NOT NULL DEFAULT 0,
+    target_category_id BIGINT NULL,
+    notes TEXT NULL,
+    completion_percentage DECIMAL(5, 2) NOT NULL DEFAULT 0.00,
+    assigned_to_id BIGINT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (parent_work_order_id) REFERENCES manufacturing_workorder(id) ON DELETE CASCADE,
+    FOREIGN KEY (bom_component_id) REFERENCES manufacturing_bomcomponent(id) ON DELETE PROTECT,
+    FOREIGN KEY (target_category_id) REFERENCES inventory_inventorycategory(id) ON DELETE PROTECT,
+    FOREIGN KEY (assigned_to_id) REFERENCES auth_user(id) ON DELETE SET NULL,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    INDEX (status),
+    INDEX (parent_work_order_id),
+    INDEX (planned_start),
+    INDEX (planned_end)
+);
+
+# manufacturing_subworkorderprocess
+# Tracking individual process steps within a sub work order.
+TABLE manufacturing_subworkorderprocess (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    sub_work_order_id BIGINT NOT NULL,
+    process_config_id BIGINT NULL,
+    machine_id BIGINT NULL,
+    sequence_order INT NOT NULL,
+    planned_duration_minutes INT NULL,
+    actual_duration_minutes INT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'SETUP', 'RUNNING', 'PAUSED', 'COMPLETED', 'FAILED')),
+    start_time DATETIME NULL,
+    end_time DATETIME NULL,
+    operator_id BIGINT NULL,
+    setup_time_minutes INT NULL,
+    notes TEXT NULL,
+    FOREIGN KEY (sub_work_order_id) REFERENCES manufacturing_subworkorder(id) ON DELETE CASCADE,
+    FOREIGN KEY (process_config_id) REFERENCES manufacturing_processconfig(id) ON DELETE PROTECT,
+    FOREIGN KEY (machine_id) REFERENCES manufacturing_machine(id) ON DELETE PROTECT,
+    FOREIGN KEY (operator_id) REFERENCES auth_user(id) ON DELETE SET NULL,
+    INDEX (sub_work_order_id),
+    INDEX (process_config_id),
+    INDEX (machine_id),
+    INDEX (status),
+    INDEX (start_time),
+    INDEX (end_time),
+    INDEX (sequence_order)
+);
+
+# manufacturing_workorderoutput
+# Records the output quantity and status from sub work orders.
+TABLE manufacturing_workorderoutput (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    sub_work_order_id BIGINT NOT NULL,
+    quantity INT NOT NULL,
+    status VARCHAR(20) NOT NULL CHECK (status IN ('GOOD', 'REWORK', 'SCRAP', 'QUARANTINE')),
+    target_category_id BIGINT NOT NULL,
+    notes TEXT NULL,
+    quarantine_reason TEXT NULL,
+    inspection_required BOOLEAN NOT NULL DEFAULT FALSE,
+    created_by_id BIGINT NULL,
+    production_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (sub_work_order_id) REFERENCES manufacturing_subworkorder(id) ON DELETE PROTECT,
+    FOREIGN KEY (target_category_id) REFERENCES inventory_inventorycategory(id) ON DELETE PROTECT,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE SET NULL,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    INDEX (status),
+    INDEX (sub_work_order_id),
+    INDEX (target_category_id),
+    INDEX (inspection_required),
+    INDEX (production_date)
+);
+
+
+# --- Quality Control App (quality_control) ---
+
+# quality_control_qualitydocument
+# Stores quality-related documents.
+TABLE quality_control_qualitydocument (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    document_type VARCHAR(20) NOT NULL CHECK (document_type IN ('SUPPORT', 'MANUAL', 'PROCEDURE', 'INSTRUCTION', 'SCHEMA')),
+    title VARCHAR(200) NOT NULL,
+    version VARCHAR(20) NOT NULL,
+    effective_date DATE NOT NULL,
+    related_bom_id BIGINT NULL,
+    related_product_id BIGINT NULL,
+    file VARCHAR(100) NOT NULL,
+    approved_by_id BIGINT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (related_bom_id) REFERENCES manufacturing_bom(id) ON DELETE SET NULL,
+    FOREIGN KEY (related_product_id) REFERENCES inventory_product(id) ON DELETE SET NULL,
+    FOREIGN KEY (approved_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT
+);
+
+# quality_control_qualitychecklist
+# Defines checklists for quality control procedures.
+TABLE quality_control_qualitychecklist (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(200) NOT NULL,
+    description TEXT NOT NULL,
+    process_id BIGINT NOT NULL,
+    items JSON NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (process_id) REFERENCES manufacturing_manufacturingprocess(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT
+);
+
+# quality_control_qualityformresponse
+# Stores responses submitted for quality checklists.
+TABLE quality_control_qualityformresponse (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    checklist_id BIGINT NOT NULL,
+    work_order_id BIGINT NOT NULL,
+    responder_id BIGINT NOT NULL,
+    responses JSON NOT NULL,
+    passed BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (checklist_id) REFERENCES quality_control_qualitychecklist(id) ON DELETE PROTECT,
+    FOREIGN KEY (work_order_id) REFERENCES manufacturing_workorder(id) ON DELETE PROTECT,
+    FOREIGN KEY (responder_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT
+);
+
+# quality_control_calibrationrecord
+# Records calibration events for machines or potentially gauges.
+TABLE quality_control_calibrationrecord (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    machine_id BIGINT NOT NULL,
+    calibrated_by_id BIGINT NOT NULL,
+    calibration_date DATE NOT NULL,
+    next_calibration_date DATE NOT NULL,
+    certificate_url VARCHAR(200) NOT NULL,
+    parameters JSON NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (machine_id) REFERENCES manufacturing_machine(id) ON DELETE PROTECT,
+    FOREIGN KEY (calibrated_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT
+);
+
+
+# --- Maintenance App (maintenance) ---
+
+# maintenance_maintenance
+# Tracks scheduled and completed maintenance tasks for machines.
+TABLE maintenance_maintenance (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    machine_id BIGINT NOT NULL,
+    maintenance_type VARCHAR(20) NOT NULL CHECK (maintenance_type IN ('PREVENTIVE', 'CORRECTIVE', 'PREDICTIVE')),
+    scheduled_date DATE NOT NULL,
+    completed_date DATE NULL,
+    assigned_to_id BIGINT NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'SCHEDULED' CHECK (status IN ('SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'OVERDUE')),
+    checklist JSON NOT NULL DEFAULT '[]',
+    notes TEXT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (machine_id) REFERENCES manufacturing_machine(id) ON DELETE PROTECT,
+    FOREIGN KEY (assigned_to_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT
+);
+
+# maintenance_faultreport
+# Records machine faults reported by users.
+TABLE maintenance_faultreport (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    machine_id BIGINT NOT NULL,
+    reported_by_id BIGINT NOT NULL,
+    fault_description TEXT NOT NULL,
+    severity VARCHAR(20) NOT NULL CHECK (severity IN ('LOW', 'MEDIUM', 'HIGH')),
+    status VARCHAR(20) NOT NULL DEFAULT 'OPEN' CHECK (status IN ('OPEN', 'IN_PROGRESS', 'RESOLVED')),
+    resolution_notes TEXT NULL,
+    resolved_at DATETIME NULL,
+    resolved_by_id BIGINT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    modified_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (machine_id) REFERENCES manufacturing_machine(id) ON DELETE PROTECT,
+    FOREIGN KEY (reported_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (resolved_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (created_by_id) REFERENCES auth_user(id) ON DELETE PROTECT,
+    FOREIGN KEY (modified_by_id) REFERENCES auth_user(id) ON DELETE PROTECT
+);
+
+
+# --- History Tables (django-simple-history) ---
+
+# inventory_historicaltechnicaldrawing
+TABLE inventory_historicaltechnicaldrawing (
+    history_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    history_date DATETIME NOT NULL,
+    history_change_reason VARCHAR(100) NULL,
+    history_type VARCHAR(1) NOT NULL CHECK (history_type IN ('+', '~', '-')),
+    history_user_id BIGINT NULL,
+    id BIGINT NOT NULL,
+    product_id BIGINT NOT NULL,
+    version VARCHAR(20) NOT NULL,
+    drawing_code VARCHAR(50) NOT NULL,
+    drawing_file VARCHAR(500) NULL,
+    effective_date DATE NOT NULL,
+    is_current BOOLEAN NOT NULL,
+    revision_notes VARCHAR(500) NULL,
+    approved_by_id BIGINT NULL,
+    created_at DATETIME NOT NULL,
+    modified_at DATETIME NOT NULL,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (history_user_id) REFERENCES auth_user(id) ON DELETE SET NULL,
+    INDEX (history_date),
+    INDEX (id)
+);
+
+# manufacturing_historicalbom
+TABLE manufacturing_historicalbom (
+    history_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    history_date DATETIME NOT NULL,
+    history_change_reason VARCHAR(100) NULL,
+    history_type VARCHAR(1) NOT NULL CHECK (history_type IN ('+', '~', '-')),
+    history_user_id BIGINT NULL,
+    id BIGINT NOT NULL,
+    product_id BIGINT NOT NULL,
+    version VARCHAR(20) NOT NULL,
+    is_active BOOLEAN NOT NULL,
+    is_approved BOOLEAN NOT NULL,
+    approved_by_id BIGINT NULL,
+    approved_at DATETIME NULL,
+    parent_bom_id BIGINT NULL,
+    notes TEXT NULL,
+    created_at DATETIME NOT NULL,
+    modified_at DATETIME NOT NULL,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (history_user_id) REFERENCES auth_user(id) ON DELETE SET NULL,
+    INDEX (history_date),
+    INDEX (id)
+);
+
+# manufacturing_historicalproductworkflow
+TABLE manufacturing_historicalproductworkflow (
+    history_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    history_date DATETIME NOT NULL,
+    history_change_reason VARCHAR(100) NULL,
+    history_type VARCHAR(1) NOT NULL CHECK (history_type IN ('+', '~', '-')),
+    history_user_id BIGINT NULL,
+    id BIGINT NOT NULL,
+    product_id BIGINT NOT NULL,
+    version VARCHAR(20) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    effective_date DATE NULL,
+    notes TEXT NULL,
+    created_by_id BIGINT NOT NULL,
+    approved_by_id BIGINT NULL,
+    approved_at DATETIME NULL,
+    created_at DATETIME NOT NULL,
+    modified_at DATETIME NOT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (history_user_id) REFERENCES auth_user(id) ON DELETE SET NULL,
+    INDEX (history_date),
+    INDEX (id)
+);
+
+# manufacturing_historicalprocessconfig
+TABLE manufacturing_historicalprocessconfig (
+    history_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    history_date DATETIME NOT NULL,
+    history_change_reason VARCHAR(100) NULL,
+    history_type VARCHAR(1) NOT NULL CHECK (history_type IN ('+', '~', '-')),
+    history_user_id BIGINT NULL,
+    id BIGINT NOT NULL,
+    workflow_id BIGINT NULL,
+    process_id BIGINT NULL,
+    version VARCHAR(20) NOT NULL,
+    status VARCHAR(20) NOT NULL,
+    sequence_order INT NOT NULL,
+    tool_id UUID NULL,
+    control_gauge_id UUID NULL,
+    fixture_id UUID NULL,
+    axis_count VARCHAR(20) NULL,
+    machine_time INT NULL,
+    setup_time INT NULL,
+    net_time INT NULL,
+    number_of_bindings INT NOT NULL,
+    effective_date DATE NULL,
+    description TEXT NULL,
+    created_at DATETIME NOT NULL,
+    modified_at DATETIME NOT NULL,
+    created_by_id BIGINT NULL,
+    modified_by_id BIGINT NULL,
+    FOREIGN KEY (history_user_id) REFERENCES auth_user(id) ON DELETE SET NULL,
+    INDEX (history_date),
+    INDEX (id)
+);
+
+
+# --- Notes ---
+# - This schema is derived from the Django models. Actual column types might vary slightly based on the specific database backend (e.g., PostgreSQL, MySQL).
+# - `AUTO_INCREMENT` / `gen_random_uuid()` syntax depends on the specific SQL dialect. Default Auto PK is now generally BigAutoField (BIGINT).
+# - `BaseModel` fields (`created_at`, `modified_at`, `created_by_id`, `modified_by_id`) are included in tables inheriting from it, unless overridden. FK types adjusted assuming BigAutoField for User.
+# - `ForeignKey` constraints use `ON DELETE PROTECT` by default as specified in many models, preventing deletion if referenced. Some use `CASCADE` or `SET NULL`. FK types adjusted based on target PK type (e.g., INT, BIGINT, UUID).
+# - `CHECK` constraints are added for fields with `choices`.
+# - `UNIQUE` constraints are added for fields with `unique=True` and for `unique_together` in `Meta`.
+# - `INDEX` definitions are included based on `db_index=True` (implied for `ForeignKey`, `unique=True`) and `Meta.indexes`.
+# - `JSONField` is represented as `JSON`. The specific type (JSONB, JSON) depends on the database.
+# - `FileField` and `ImageField` are represented as `VARCHAR` storing the file path. Max length depends on configuration.
+# - Validation logic within model `clean()` methods (e.g., conditional checks) is typically enforced at the application level, not directly as database constraints, though some simple checks are included.
+# - `FieldTracker` from `model_utils` does not directly translate to a database schema element.
+# - History tables (`historical_*`) are added for models using `django-simple-history`. They mirror the original fields plus history metadata.

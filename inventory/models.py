@@ -6,6 +6,8 @@ import pathlib
 from django.db.models import Sum
 from django.apps import apps
 from django.conf import settings
+import uuid
+from simple_history.models import HistoricalRecords
 
 class Status(models.TextChoices):
     ACTIVE = 'AKTIF', 'Aktif'
@@ -145,6 +147,7 @@ class TechnicalDrawing(BaseModel):
     is_current = models.BooleanField(default=True)
     revision_notes = models.CharField(max_length=500, blank=True, null=True)
     approved_by = models.ForeignKey(User, on_delete=models.PROTECT, null=True, blank=True, related_name='approved_drawings')
+    history = HistoricalRecords()
 
     class Meta:
         verbose_name = "Technical Drawing"
@@ -288,8 +291,16 @@ class InventoryTransaction(BaseModel):
             models.Index(fields=['reference_id', 'transaction_type']),
         ]
 
+class ToolHolderStatus(models.TextChoices):
+    AVAILABLE = 'AVAILABLE', 'Available'
+    IN_USE = 'IN_USE', 'In Use'
+    DAMAGED = 'DAMAGED', 'Damaged'
+    UNDER_MAINTENANCE = 'UNDER_MAINTENANCE', 'Under Maintenance'
+    RETIRED = 'RETIRED', 'Retired'
+
 class Tool(BaseModel):
-    stock_code = models.CharField(max_length=50, primary_key=True)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    stock_code = models.CharField(max_length=50, unique=True, db_index=True)
     supplier_name = models.CharField(max_length=100)
     product_code = models.CharField(max_length=50)
     unit_price_tl = models.DecimalField(max_digits=10, decimal_places=2)
@@ -305,11 +316,10 @@ class Tool(BaseModel):
     tool_radius = models.DecimalField(max_digits=10, decimal_places=2)
     tool_connection_diameter = models.DecimalField(max_digits=10, decimal_places=2)
     tool_type = models.CharField(max_length=50)
-    status = models.CharField(max_length=50)
+    status = models.CharField(max_length=20, choices=ToolHolderStatus.choices, default=ToolHolderStatus.AVAILABLE)
     row = models.IntegerField()
     column = models.IntegerField()
     table_id = models.UUIDField()
-    updated_at = models.DateTimeField(auto_now=True)
     description = models.TextField(null=True, blank=True)
     quantity = models.DecimalField(max_digits=10, decimal_places=2)
 
@@ -317,15 +327,16 @@ class Tool(BaseModel):
         verbose_name = "Tool"
         verbose_name_plural = "Tools"
         indexes = [
-            models.Index(fields=['product_code']),
-            models.Index(fields=['row', 'column']),
+            models.Index(fields=['tool_type']),
+            models.Index(fields=['status']),
         ]
 
     def __str__(self):
-        return f"{self.stock_code} - {self.tool_type}"
+        return f"{self.stock_code} - {self.supplier_name}"
 
 class Holder(BaseModel):
-    stock_code = models.CharField(max_length=50, primary_key=True)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    stock_code = models.CharField(max_length=50, unique=True, db_index=True)
     supplier_name = models.CharField(max_length=100)
     product_code = models.CharField(max_length=50)
     unit_price_tl = models.DecimalField(max_digits=10, decimal_places=2)
@@ -337,26 +348,26 @@ class Holder(BaseModel):
     distance_cooling = models.BooleanField(default=False)
     tool_connection_diameter = models.DecimalField(max_digits=10, decimal_places=2)
     holder_type_enum = models.CharField(max_length=50)
-    status = models.CharField(max_length=50)
+    status = models.CharField(max_length=20, choices=ToolHolderStatus.choices, default=ToolHolderStatus.AVAILABLE)
     row = models.IntegerField()
     column = models.IntegerField()
     table_id = models.UUIDField()
-    updated_at = models.DateTimeField(auto_now=True)
     description = models.TextField(null=True, blank=True)
 
     class Meta:
         verbose_name = "Holder"
         verbose_name_plural = "Holders"
         indexes = [
-            models.Index(fields=['product_code']),
-            models.Index(fields=['row', 'column']),
+            models.Index(fields=['holder_type']),
+            models.Index(fields=['status']),
         ]
 
     def __str__(self):
-        return f"{self.stock_code} - {self.holder_type}"
+        return f"{self.stock_code} - {self.supplier_name}"
 
 class Fixture(BaseModel):
-    code = models.CharField(max_length=50, primary_key=True)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    code = models.CharField(max_length=50, unique=True, db_index=True)
     name = models.TextField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
 
@@ -364,11 +375,11 @@ class Fixture(BaseModel):
         verbose_name = "Fixture"
         verbose_name_plural = "Fixtures"
         indexes = [
-            models.Index(fields=['name']),
+            models.Index(fields=['status']),
         ]
 
     def __str__(self):
-        return f"{self.code} - {self.name}"
+        return f"{self.code} - {self.name or 'No Name'}"
 
 class ControlGauge(BaseModel):
     GAUGE_STATUS_CHOICES = [
@@ -376,9 +387,12 @@ class ControlGauge(BaseModel):
         ('KULLANILMIYOR', 'Kullanılmıyor'),
         ('HURDA', 'Hurda'),
         ('KAYIP', 'Kayıp'),
+        ('BAKIMDA', 'Bakımda'),
+        ('KALIBRASYONDA', 'Kalibrasyonda'),
     ]
 
-    stock_code = models.CharField(max_length=50, primary_key=True)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    stock_code = models.CharField(max_length=50, unique=True, db_index=True)
     stock_name = models.CharField(max_length=100)
     stock_type = models.CharField(max_length=50, null=True, blank=True)
     serial_number = models.CharField(max_length=100, null=True, blank=True)
@@ -400,9 +414,8 @@ class ControlGauge(BaseModel):
         verbose_name = "Control Gauge"
         verbose_name_plural = "Control Gauges"
         indexes = [
-            models.Index(fields=['stock_name']),
             models.Index(fields=['status']),
-            models.Index(fields=['calibration_date']),
+            models.Index(fields=['upcoming_calibration_date']),
         ]
 
     def __str__(self):

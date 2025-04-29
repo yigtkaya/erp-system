@@ -8,6 +8,8 @@ from django.db.models import Q
 from django.db.models.query import QuerySet
 from model_utils.managers import InheritanceManager
 from django.utils import timezone
+import uuid # Ensure uuid is imported if not already present
+from simple_history.models import HistoricalRecords # Import history
 
 class AxisCount(models.TextChoices):
     NINE_AXIS = '9EKSEN', '9 Eksen'
@@ -120,6 +122,7 @@ class BOM(BaseModel):
         help_text="The BOM this version was derived from"
     )
     notes = models.TextField(blank=True, null=True)
+    history = HistoricalRecords() # Add history tracking
 
     class Meta:
         verbose_name = "Bill of Materials"
@@ -293,6 +296,7 @@ class ProductWorkflow(BaseModel):
         related_name='approved_workflows'
     )
     approved_at = models.DateTimeField(null=True, blank=True)
+    history = HistoricalRecords() # Add history tracking
 
     class Meta:
         verbose_name = "Product Workflow"
@@ -435,18 +439,18 @@ class ProcessConfig(BaseModel):
         default=1,
         help_text="Order in which this process should be executed"
     )
-    stock_code = models.CharField(
-        max_length=50,
-        null=True,  # Temporarily allow null
-        blank=True,  # Allow blank in forms
-        help_text="Stock code for the process output"
-    )
+    # stock_code = models.CharField(
+    #     max_length=50,
+    #     null=True,  # Temporarily allow null
+    #     blank=True,  # Allow blank in forms
+    #     help_text="Stock code for the process output - Review if needed"
+    # ) # Commented out - Purpose needs review
     tool = models.ForeignKey(
         'inventory.Tool',
         on_delete=models.PROTECT,
         null=True,
         blank=True,
-        to_field='stock_code',
+        # to_field='stock_code', # Removed: FK now points to default PK (id)
         help_text="Tool required for this process"
     )
     control_gauge = models.ForeignKey(
@@ -454,7 +458,7 @@ class ProcessConfig(BaseModel):
         on_delete=models.PROTECT,
         null=True,
         blank=True,
-        to_field='stock_code',
+        # to_field='stock_code', # Removed: FK now points to default PK (id)
         help_text="Control gauge required for quality checks in this process"
     )
     fixture = models.ForeignKey(
@@ -462,7 +466,7 @@ class ProcessConfig(BaseModel):
         on_delete=models.PROTECT,
         null=True,
         blank=True,
-        to_field='code',
+        # to_field='code', # Removed: FK now points to default PK (id)
         help_text="Fixture required for this process"
     )
     axis_count = models.CharField(

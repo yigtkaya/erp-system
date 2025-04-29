@@ -18,7 +18,6 @@ class SalesOrder(BaseModel):
     
     order_number = models.CharField(max_length=50, unique=True)
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT)
-    created_at = models.DateField(auto_now_add=True)
     approved_by = models.ForeignKey(User, on_delete=models.PROTECT, null=True, blank=True, related_name='approved_sales_orders')
     status = models.CharField(
         max_length=20,
@@ -37,12 +36,9 @@ class SalesOrder(BaseModel):
             models.Index(fields=['status', 'created_at']),
         ]
 
-    def save(self, *args, **kwargs):
-        if not self.order_number:
-            raise ValidationError("Order number is required")
-        super().save(*args, **kwargs)
-
     def clean(self):
+        if not self.order_number:
+            raise ValidationError({'order_number': "Order number cannot be empty."})
         super().clean()
 
     def update_order_status(self):

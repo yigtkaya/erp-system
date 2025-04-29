@@ -113,7 +113,7 @@ def login_view(request):
         if not user.is_active:
             return Response({
                 'success': False,
-                'message': 'This account is inactive'
+                'message': 'Bu hesap aktif değil, lütfen yönetinizle iletişime geçin.'
             }, status=status.HTTP_400_BAD_REQUEST)
 
         # Log the user in and create a session
@@ -153,14 +153,14 @@ def login_view(request):
     else:
         return Response({
             'success': False,
-            'message': 'Invalid username or password'
+            'message': 'Kullanıcı adı ve ya şifre yanlış, bilgilerinizi kontrol ederek tekrar deneyiniz.'
         }, status=status.HTTP_400_BAD_REQUEST)
 
 @swagger_auto_schema(
     method='post',
     responses={
         200: openapi.Response(
-            description="Successfully logged out",
+            description="Başarıyla çıkış yapıldı.",
             schema=openapi.Schema(
                 type=openapi.TYPE_OBJECT,
                 properties={

@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     'corsheaders',
     'axes',
     'defender',
+    'simple_history',
 ]
 
 # Custom User Model
@@ -56,6 +57,7 @@ MIDDLEWARE = [
     'axes.middleware.AxesMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'simple_history.middleware.HistoryRequestMiddleware',
 ]
 
 ROOT_URLCONF = 'erp_core.urls'
