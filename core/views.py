@@ -14,7 +14,7 @@ from django.core.cache import cache
 from datetime import datetime, timedelta
 from drf_spectacular.utils import extend_schema, OpenApiParameter
 from drf_spectacular.types import OpenApiTypes
-from .models import User, Department, Customer, UserProfile, DepartmentMembership, AuditLog
+from .models import User, Department, Customer, UserProfile, DepartmentMembership, AuditLog, PrivateDocument
 from .serializers import (
     UserSerializer, 
     UserCreateSerializer,
@@ -25,9 +25,10 @@ from .serializers import (
     UserProfileSerializer,
     LoginSerializer,
     UserListSerializer,
-    AuditLogSerializer
+    AuditLogSerializer,
+    PrivateDocumentSerializer
 )
-from .permissions import IsAdminOrReadOnly, IsSelfOrAdmin
+from .permissions import IsAdminOrReadOnly, IsSelfOrAdmin, HasRolePermission
 from .exports import ExportService
 from .imports import ImportService
 from .dashboard import DashboardService
@@ -591,164 +592,225 @@ class UserViewSet(viewsets.ModelViewSet):
         is_active = request.data.get('is_active', True)
         
         if user == request.user and not is_active:
-           return Response(
-               {'error': 'You cannot deactivate yourself'},
-               status=status.HTTP_400_BAD_REQUEST
-           )
-       
-       user.is_active = is_active
-       user.save()
-       
-       # Create audit log
-       AuditLog.objects.create(
-           table_name='users',
-           record_id=user.id,
-           action='UPDATE',
-           changed_data={'is_active': is_active},
-           changed_by=request.user
-       )
-       
-       status_text = 'activated' if is_active else 'deactivated'
-       return Response({'status': f'User {status_text} successfully'})
-   
-   @action(detail=True, methods=['post'])
-   def assign_departments(self, request, pk=None):
-       """Assign user to departments"""
-       if request.user.role != 'ADMIN':
-           return Response(
-               {'error': 'Only admins can manage department assignments'},
-               status=status.HTTP_403_FORBIDDEN
-           )
-       
-       user = self.get_object()
-       department_ids = request.data.get('department_ids', [])
-       
-       with transaction.atomic():
-           # Remove existing department memberships
-           DepartmentMembership.objects.filter(user=user).delete()
-           
-           # Create new memberships
-           for dept_id in department_ids:
-               try:
-                   department = Department.objects.get(id=dept_id)
-                   DepartmentMembership.objects.create(
-                       user=user,
-                       department=department
-                   )
-               except Department.DoesNotExist:
-                   continue
-           
-           # Update user's primary department if specified
-           primary_dept_id = request.data.get('primary_department_id')
-           if primary_dept_id:
-               try:
-                   primary_dept = Department.objects.get(id=primary_dept_id)
-                   if hasattr(user, 'profile'):
-                       user.profile.department = primary_dept
-                       user.profile.save()
-               except Department.DoesNotExist:
-                   pass
-       
-       serializer = UserSerializer(user)
-       return Response(serializer.data)
-   
-   @action(detail=False, methods=['get'])
-   def export(self, request):
-       """Export users to Excel/CSV"""
-       queryset = self.filter_queryset(self.get_queryset())
-       
-       fields = ['username', 'email', 'first_name', 'last_name', 'role', 'is_active', 'created_at']
-       headers = ['Username', 'Email', 'First Name', 'Last Name', 'Role', 'Active', 'Created At']
-       
-       format_type = request.query_params.get('format', 'excel')
-       
-       if format_type == 'csv':
-           return ExportService.export_to_csv(queryset, 'users.csv', fields, headers)
-       else:
-           return ExportService.export_to_excel(queryset, 'users.xlsx', fields, headers)
+            return Response(
+                {'error': 'You cannot deactivate yourself'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        user.is_active = is_active
+        user.save()
+        
+        # Create audit log
+        AuditLog.objects.create(
+            table_name='users',
+            record_id=user.id,
+            action='UPDATE',
+            changed_data={'is_active': is_active},
+            changed_by=request.user
+        )
+        
+        status_text = 'activated' if is_active else 'deactivated'
+        return Response({'status': f'User {status_text} successfully'})
+    
+    @action(detail=True, methods=['post'])
+    def assign_departments(self, request, pk=None):
+        """Assign user to departments"""
+        if request.user.role != 'ADMIN':
+            return Response(
+                {'error': 'Only admins can manage department assignments'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        user = self.get_object()
+        department_ids = request.data.get('department_ids', [])
+        
+        with transaction.atomic():
+            # Remove existing department memberships
+            DepartmentMembership.objects.filter(user=user).delete()
+            
+            # Create new memberships
+            for dept_id in department_ids:
+                try:
+                    department = Department.objects.get(id=dept_id)
+                    DepartmentMembership.objects.create(
+                        user=user,
+                        department=department
+                    )
+                except Department.DoesNotExist:
+                    continue
+            
+            # Update user's primary department if specified
+            primary_dept_id = request.data.get('primary_department_id')
+            if primary_dept_id:
+                try:
+                    primary_dept = Department.objects.get(id=primary_dept_id)
+                    if hasattr(user, 'profile'):
+                        user.profile.department = primary_dept
+                        user.profile.save()
+                except Department.DoesNotExist:
+                    pass
+        
+        serializer = UserSerializer(user)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def export(self, request):
+        """Export users to Excel/CSV"""
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        fields = ['username', 'email', 'first_name', 'last_name', 'role', 'is_active', 'created_at']
+        headers = ['Username', 'Email', 'First Name', 'Last Name', 'Role', 'Active', 'Created At']
+        
+        format_type = request.query_params.get('format', 'excel')
+        
+        if format_type == 'csv':
+            return ExportService.export_to_csv(queryset, 'users.csv', fields, headers)
+        else:
+            return ExportService.export_to_excel(queryset, 'users.xlsx', fields, headers)
 
 
 @extend_schema(tags=['departments'])
 class DepartmentViewSet(viewsets.ModelViewSet):
-   """Department management viewset"""
-   queryset = Department.objects.all()
-   serializer_class = DepartmentSerializer
-   permission_classes = [IsAuthenticated, IsAdminOrReadOnly]
-   filterset_fields = ['name']
-   search_fields = ['name', 'description']
-   
-   @action(detail=True, methods=['get'])
-   def members(self, request, pk=None):
-       """Get all members of a department"""
-       department = self.get_object()
-       memberships = DepartmentMembership.objects.filter(department=department)
-       users = [m.user for m in memberships]
-       serializer = UserListSerializer(users, many=True)
-       return Response(serializer.data)
+    """Department management viewset"""
+    queryset = Department.objects.all()
+    serializer_class = DepartmentSerializer
+    permission_classes = [IsAuthenticated, IsAdminOrReadOnly]
+    filterset_fields = ['name']
+    search_fields = ['name', 'description']
+    
+    @action(detail=True, methods=['get'])
+    def members(self, request, pk=None):
+        """Get all members of a department"""
+        department = self.get_object()
+        memberships = DepartmentMembership.objects.filter(department=department)
+        users = [m.user for m in memberships]
+        serializer = UserListSerializer(users, many=True)
+        return Response(serializer.data)
 
 
 @extend_schema(tags=['customers'])
 class CustomerViewSet(viewsets.ModelViewSet):
-   """Customer management viewset"""
-   queryset = Customer.objects.all()
-   serializer_class = CustomerSerializer
-   permission_classes = [IsAuthenticated]
-   filterset_fields = ['code', 'name']
-   search_fields = ['code', 'name', 'email']
-   ordering_fields = ['code', 'name', 'created_at']
-   ordering = ['code']
-   
-   def perform_create(self, serializer):
-       serializer.save(created_by=self.request.user)
-   
-   def perform_update(self, serializer):
-       serializer.save(modified_by=self.request.user)
-   
-   @action(detail=False, methods=['get'])
-   def export(self, request):
-       """Export customers to Excel/CSV"""
-       queryset = self.filter_queryset(self.get_queryset())
-       
-       fields = ['code', 'name', 'email', 'phone', 'address', 'created_at']
-       headers = ['Code', 'Name', 'Email', 'Phone', 'Address', 'Created At']
-       
-       format_type = request.query_params.get('format', 'excel')
-       
-       if format_type == 'csv':
-           return ExportService.export_to_csv(queryset, 'customers.csv', fields, headers)
-       else:
-           return ExportService.export_to_excel(queryset, 'customers.xlsx', fields, headers)
-   
-   @action(detail=False, methods=['post'])
-   def import_data(self, request):
-       """Import customers from Excel"""
-       if 'file' not in request.FILES:
-           return Response({'error': 'No file provided'}, status=400)
-       
-       file = request.FILES['file']
-       field_mapping = {
-           'Code': 'code',
-           'Name': 'name',
-           'Email': 'email',
-           'Phone': 'phone',
-           'Address': 'address',
-       }
-       
-       try:
-           results = ImportService.import_from_excel(
-               file, Customer, field_mapping, request.user
-           )
-           return Response(results)
-       except Exception as e:
-           return Response({'error': str(e)}, status=400)
+    """Customer management viewset"""
+    queryset = Customer.objects.all()
+    serializer_class = CustomerSerializer
+    permission_classes = [IsAuthenticated]
+    filterset_fields = ['code', 'name']
+    search_fields = ['code', 'name', 'email']
+    ordering_fields = ['code', 'name', 'created_at']
+    ordering = ['code']
+    
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+    
+    def perform_update(self, serializer):
+        serializer.save(modified_by=self.request.user)
+    
+    @action(detail=False, methods=['get'])
+    def export(self, request):
+        """Export customers to Excel/CSV"""
+        queryset = self.filter_queryset(self.get_queryset())
+        
+        fields = ['code', 'name', 'email', 'phone', 'address', 'created_at']
+        headers = ['Code', 'Name', 'Email', 'Phone', 'Address', 'Created At']
+        
+        format_type = request.query_params.get('format', 'excel')
+        
+        if format_type == 'csv':
+            return ExportService.export_to_csv(queryset, 'customers.csv', fields, headers)
+        else:
+            return ExportService.export_to_excel(queryset, 'customers.xlsx', fields, headers)
+    
+    @action(detail=False, methods=['post'])
+    def import_data(self, request):
+        """Import customers from Excel"""
+        if 'file' not in request.FILES:
+            return Response({'error': 'No file provided'}, status=400)
+        
+        file = request.FILES['file']
+        field_mapping = {
+            'Code': 'code',
+            'Name': 'name',
+            'Email': 'email',
+            'Phone': 'phone',
+            'Address': 'address',
+        }
+        
+        try:
+            results = ImportService.import_from_excel(
+                file, Customer, field_mapping, request.user
+            )
+            return Response(results)
+        except Exception as e:
+            return Response({'error': str(e)}, status=400)
 
 
 @extend_schema(tags=['audit'])
 class AuditLogViewSet(viewsets.ReadOnlyModelViewSet):
-   """View audit logs"""
-   queryset = AuditLog.objects.all()
-   serializer_class = AuditLogSerializer
-   permission_classes = [IsAuthenticated, IsAdminUser]
-   filterset_fields = ['table_name', 'action', 'changed_by']
-   search_fields = ['table_name', 'action']
-   ordering = ['-changed_at']
+    """View audit logs"""
+    queryset = AuditLog.objects.all()
+    serializer_class = AuditLogSerializer
+    permission_classes = [IsAuthenticated, IsAdminUser]
+    filterset_fields = ['table_name', 'action', 'changed_by']
+    search_fields = ['table_name', 'action']
+    ordering = ['-changed_at']
+
+
+class PrivateDocumentViewSet(viewsets.ModelViewSet):
+    """
+    API endpoint for private documents
+    
+    These documents are stored in Cloudflare R2 with private ACL.
+    Temporary URLs are generated for access with configurable expiration.
+    """
+    queryset = PrivateDocument.objects.all()
+    serializer_class = PrivateDocumentSerializer
+    permission_classes = [IsAuthenticated, HasRolePermission]
+    filterset_fields = ['created_at']
+    search_fields = ['title', 'description']
+    ordering_fields = ['created_at', 'title']
+    ordering = ['-created_at']
+    
+    def perform_create(self, serializer):
+        """Add the current user as the creator of the document"""
+        serializer.save(created_by=self.request.user)
+    
+    @action(detail=True, methods=['get'])
+    def extended_access(self, request, pk=None):
+        """
+        Generate a URL with extended access time (1 hour)
+        """
+        document = self.get_object()
+        serializer = self.get_serializer(
+            document, 
+            context={'expire_seconds': 3600}  # 1 hour
+        )
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def short_access(self, request, pk=None):
+        """
+        Generate a URL with short access time (1 minute)
+        """
+        document = self.get_object()
+        serializer = self.get_serializer(
+            document, 
+            context={'expire_seconds': 60}  # 1 minute
+        )
+        return Response(serializer.data)
+
+
+@extend_schema(tags=['users'])
+class UserProfileViewSet(viewsets.ModelViewSet):
+    """User profile management viewset"""
+    queryset = UserProfile.objects.all()
+    serializer_class = UserProfileSerializer
+    permission_classes = [IsAuthenticated, IsSelfOrAdmin]
+    
+    def get_queryset(self):
+        user = self.request.user
+        if user.role == 'ADMIN':
+            return UserProfile.objects.all()
+        return UserProfile.objects.filter(user=user)
+    
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)

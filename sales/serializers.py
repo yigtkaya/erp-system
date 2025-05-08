@@ -7,6 +7,8 @@ from .models import (
 )
 from core.serializers import CustomerSerializer, UserListSerializer
 from inventory.serializers import ProductSerializer
+from inventory.models import Product  # Import the Product model
+from core.models import Customer  # Import the Customer model
 
 
 class CurrencySerializer(serializers.ModelSerializer):

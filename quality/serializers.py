@@ -1,10 +1,12 @@
 # quality/serializers.py
 from rest_framework import serializers
+from core.models import User
 from .models import (
     QualityStandard, InspectionTemplate, InspectionParameter,
     QualityInspection, InspectionResult, NonConformance,
     QualityDocument
 )
+from inventory.models import Product
 from core.serializers import UserListSerializer
 from inventory.serializers import ProductSerializer
 from manufacturing.serializers import WorkOrderSerializer

@@ -3,6 +3,8 @@ from django.db import models
 from django.core.exceptions import ValidationError
 from core.models import BaseModel, Customer
 from common.models import FileVersionManager, ContentType
+from django.utils import timezone
+from django.conf import settings
 import re
 
 
@@ -23,26 +25,16 @@ class MaterialType(models.TextChoices):
     OTHER = 'OTHER', 'Other'
 
 
-class InventoryCategory(models.Model):
-    CATEGORY_CHOICES = [
-        ('HAMMADDE', 'Hammadde'),    # Raw Materials and Standard Parts
-        ('PROSES', 'Proses'),        # Unfinished/Semi Products
-        ('MAMUL', 'Mamül'),          # Finished and Single Products
-        ('KARANTINA', 'Karantina'),  # Items needing decision
-        ('HURDA', 'Hurda'),          # Scrap items
-        ('TAKIMHANE', 'Takımhane')   # Tool storage
-    ]
-    
-    name = models.CharField(max_length=20, choices=CATEGORY_CHOICES, unique=True)
+class InventoryCategory(BaseModel):
+    name = models.CharField(max_length=50, unique=True)
     description = models.TextField(blank=True, null=True)
     
     class Meta:
         db_table = 'inventory_categories'
-        verbose_name = "Inventory Category"
-        verbose_name_plural = "Inventory Categories"
-    
+        ordering = ['name']
+        
     def __str__(self):
-        return self.get_name_display()
+        return self.name
 
 
 class UnitOfMeasure(models.Model):
@@ -171,7 +163,7 @@ class TechnicalDrawing(BaseModel):
     effective_date = models.DateField()
     is_current = models.BooleanField(default=True)
     revision_notes = models.TextField(blank=True, null=True)
-    approved_by = models.ForeignKey('core.User', on_delete=models.PROTECT, null=True, blank=True)
+    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, blank=True)
     approved_at = models.DateTimeField(null=True, blank=True)
     tags = models.JSONField(null=True, blank=True, help_text="List of tags")
     
@@ -273,3 +265,220 @@ class ProductBOM(BaseModel):
     
     def __str__(self):
         return f"{self.parent_product.product_code} -> {self.child_product.product_code} ({self.quantity})"
+
+
+class ProductStock(BaseModel):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='stock')
+    category = models.ForeignKey(InventoryCategory, on_delete=models.PROTECT)
+    quantity = models.DecimalField(max_digits=10, decimal_places=3, default=0)
+    location = models.CharField(max_length=100, null=True, blank=True)
+    batch_number = models.CharField(max_length=50, null=True, blank=True)
+    expiry_date = models.DateField(null=True, blank=True)
+    receipt_date = models.DateField(default=timezone.now)
+    
+    class Meta:
+        db_table = 'product_stock'
+        unique_together = ['product', 'category', 'batch_number']
+        ordering = ['product', 'category']
+        
+    def __str__(self):
+        return f"{self.product.product_code} - {self.category.name}: {self.quantity} {self.product.unit_of_measure}"
+
+
+class StockTransactionType(models.TextChoices):
+    PURCHASE_RECEIPT = 'PURCHASE_RECEIPT', 'Purchase Receipt'
+    SALES_ISSUE = 'SALES_ISSUE', 'Sales Issue'
+    PRODUCTION_RECEIPT = 'PRODUCTION_RECEIPT', 'Production Receipt'
+    PRODUCTION_ISSUE = 'PRODUCTION_ISSUE', 'Production Issue'
+    TRANSFER_IN = 'TRANSFER_IN', 'Transfer In'
+    TRANSFER_OUT = 'TRANSFER_OUT', 'Transfer Out'
+    RETURN_RECEIPT = 'RETURN_RECEIPT', 'Return Receipt'
+    SCRAP = 'SCRAP', 'Scrap'
+    ADJUSTMENT_IN = 'ADJUSTMENT_IN', 'Adjustment In'
+    ADJUSTMENT_OUT = 'ADJUSTMENT_OUT', 'Adjustment Out'
+
+
+# New model for stock transactions
+class StockTransaction(BaseModel):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='transactions')
+    transaction_type = models.CharField(max_length=30, choices=StockTransactionType.choices)
+    transaction_date = models.DateTimeField(default=timezone.now)
+    quantity = models.DecimalField(max_digits=10, decimal_places=3)
+    unit_cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    category = models.ForeignKey(InventoryCategory, on_delete=models.PROTECT, related_name='transactions')
+    location = models.CharField(max_length=100, null=True, blank=True)
+    batch_number = models.CharField(max_length=50, null=True, blank=True)
+    reference = models.CharField(max_length=100, null=True, blank=True)
+    notes = models.TextField(null=True, blank=True)
+    
+    # Foreign keys to related entities
+    purchase_order = models.ForeignKey('purchasing.PurchaseOrder', on_delete=models.SET_NULL, 
+                                       null=True, blank=True, related_name='stock_transactions')
+    sales_order = models.ForeignKey('sales.SalesOrder', on_delete=models.SET_NULL, 
+                                    null=True, blank=True, related_name='stock_transactions')
+    work_order = models.ForeignKey('manufacturing.WorkOrder', on_delete=models.SET_NULL, 
+                                   null=True, blank=True, related_name='stock_transactions')
+    
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='stock_transactions')
+    
+    class Meta:
+        db_table = 'stock_transactions'
+        ordering = ['-transaction_date']
+        indexes = [
+            models.Index(fields=['product', 'transaction_date']),
+            models.Index(fields=['transaction_type']),
+            models.Index(fields=['reference']),
+            models.Index(fields=['category']),
+            models.Index(fields=['batch_number']),
+        ]
+    
+    def __str__(self):
+        return f"{self.product.product_code} - {self.get_transaction_type_display()} - {self.quantity}"
+
+
+class StockMovement(BaseModel):
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='movements')
+    from_category = models.ForeignKey(InventoryCategory, on_delete=models.PROTECT, related_name='outgoing_movements')
+    to_category = models.ForeignKey(InventoryCategory, on_delete=models.PROTECT, related_name='incoming_movements')
+    quantity = models.DecimalField(max_digits=10, decimal_places=3)
+    movement_date = models.DateTimeField(default=timezone.now)
+    reference_type = models.CharField(max_length=50, null=True, blank=True)
+    reference_id = models.CharField(max_length=50, null=True, blank=True)
+    notes = models.TextField(blank=True, null=True)
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='stock_movements')
+    
+    class Meta:
+        db_table = 'stock_movements'
+        ordering = ['-movement_date']
+        
+    def __str__(self):
+        return f"{self.product.product_code} - {self.from_category.name} to {self.to_category.name}: {self.quantity}"
+
+
+
+
+# New model for Tool
+class ToolStatus(models.TextChoices):
+    AVAILABLE = 'AVAILABLE', 'Available'
+    IN_USE = 'IN_USE', 'In Use'
+    MAINTENANCE = 'MAINTENANCE', 'Under Maintenance'
+    BROKEN = 'BROKEN', 'Broken'
+    RETIRED = 'RETIRED', 'Retired'
+
+
+class Tool(BaseModel):
+    tool_code = models.CharField(max_length=50, unique=True)
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True, null=True)
+    tool_type = models.CharField(max_length=50)
+    size = models.CharField(max_length=50, blank=True, null=True)
+    manufacturer = models.CharField(max_length=100, blank=True, null=True)
+    status = models.CharField(max_length=20, choices=ToolStatus.choices, default=ToolStatus.AVAILABLE)
+    location = models.CharField(max_length=100, blank=True, null=True)
+    
+    # Tool specific attributes
+    max_usage_count = models.IntegerField(null=True, blank=True)
+    current_usage_count = models.IntegerField(default=0)
+    last_maintenance_date = models.DateField(null=True, blank=True)
+    maintenance_interval_days = models.IntegerField(default=90)
+    next_maintenance_date = models.DateField(null=True, blank=True)
+    
+    # Physical characteristics
+    dimensions = models.JSONField(null=True, blank=True)
+    material = models.CharField(max_length=100, blank=True, null=True)
+    
+    # Purchase information
+    purchase_date = models.DateField(null=True, blank=True)
+    cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    supplier = models.ForeignKey('purchasing.Supplier', on_delete=models.SET_NULL, null=True, blank=True)
+    
+    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='created_tools')
+    
+    class Meta:
+        db_table = 'tools'
+        ordering = ['tool_code']
+        indexes = [
+            models.Index(fields=['tool_type']),
+            models.Index(fields=['status']),
+            models.Index(fields=['next_maintenance_date']),
+        ]
+    
+    def save(self, *args, **kwargs):
+        # Calculate next maintenance date if needed
+        if self.last_maintenance_date and self.maintenance_interval_days:
+            self.next_maintenance_date = self.last_maintenance_date + timezone.timedelta(days=self.maintenance_interval_days)
+        super().save(*args, **kwargs)
+    
+    def __str__(self):
+        return f"{self.tool_code} - {self.name} ({self.get_status_display()})"
+
+
+# New model for tool usage tracking
+class ToolUsage(BaseModel):
+    tool = models.ForeignKey(Tool, on_delete=models.CASCADE, related_name='usages')
+    work_order = models.ForeignKey('manufacturing.WorkOrder', on_delete=models.CASCADE, related_name='tool_usages')
+    issued_date = models.DateTimeField(default=timezone.now)
+    issued_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='issued_tools')
+    returned_date = models.DateTimeField(null=True, blank=True)
+    returned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='received_tools')
+    usage_count = models.IntegerField(default=1)
+    condition_before = models.CharField(max_length=50, choices=[
+        ('NEW', 'New'),
+        ('GOOD', 'Good'),
+        ('FAIR', 'Fair'),
+        ('POOR', 'Poor')
+    ], default='GOOD')
+    condition_after = models.CharField(max_length=50, choices=[
+        ('GOOD', 'Good'),
+        ('FAIR', 'Fair'),
+        ('POOR', 'Poor'),
+        ('BROKEN', 'Broken')
+    ], null=True, blank=True)
+    notes = models.TextField(blank=True, null=True)
+    
+    class Meta:
+        db_table = 'tool_usages'
+        ordering = ['-issued_date']
+        indexes = [
+            models.Index(fields=['tool']),
+            models.Index(fields=['work_order']),
+            models.Index(fields=['issued_date']),
+            models.Index(fields=['returned_date']),
+        ]
+    
+    def save(self, *args, **kwargs):
+        # Track tool usage and set tool status
+        is_new = self.pk is None
+        
+        # Handle new tool usage
+        if is_new:
+            # Update tool status to IN_USE when issued
+            if self.tool.status in [ToolStatus.AVAILABLE]:
+                self.tool.status = ToolStatus.IN_USE
+                self.tool.save(update_fields=['status'])
+        
+        # Handle tool return
+        if not is_new and self.returned_date and not self._state.adding:
+            # Get the original instance
+            original = Tool.objects.get(pk=self.tool.pk)
+            
+            # Update tool usage count
+            self.tool.current_usage_count += self.usage_count
+            
+            # Set tool status based on condition after return
+            if self.condition_after == 'BROKEN':
+                self.tool.status = ToolStatus.BROKEN
+            else:
+                # Check if tool needs maintenance based on usage count
+                if (self.tool.max_usage_count and 
+                    self.tool.current_usage_count >= self.tool.max_usage_count):
+                    self.tool.status = ToolStatus.MAINTENANCE
+                else:
+                    self.tool.status = ToolStatus.AVAILABLE
+            
+            self.tool.save(update_fields=['status', 'current_usage_count'])
+        
+        super().save(*args, **kwargs)
+    
+    def __str__(self):
+        return f"{self.tool.tool_code} - {self.work_order.work_order_number}"

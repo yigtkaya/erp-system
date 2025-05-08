@@ -2,10 +2,17 @@ from pathlib import Path
 from decouple import config, Csv
 from datetime import timedelta
 import os
-import sentry_sdk
-from sentry_sdk.integrations.django import DjangoIntegration
-from sentry_sdk.integrations.celery import CeleryIntegration
-from sentry_sdk.integrations.redis import RedisIntegration
+
+# Make Sentry SDK optional
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.django import DjangoIntegration
+    from sentry_sdk.integrations.celery import CeleryIntegration
+    from sentry_sdk.integrations.redis import RedisIntegration
+    SENTRY_AVAILABLE = True
+except ImportError:
+    SENTRY_AVAILABLE = False
+    print("Sentry SDK not available. Error reporting disabled.")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -127,28 +134,64 @@ STATIC_ROOT = BASE_DIR / 'static'
 STATICFILES_DIRS = [
     BASE_DIR / 'static_dev',
 ]
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+# STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Media files & Cloudflare R2 Configuration
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # Cloudflare R2 Settings
-USE_CLOUDFLARE_R2 = True
-AWS_ACCESS_KEY_ID = config('R2_ACCESS_KEY_ID')
-AWS_SECRET_ACCESS_KEY = config('R2_SECRET_ACCESS_KEY')
-AWS_STORAGE_BUCKET_NAME = config('R2_BUCKET_NAME')
-AWS_S3_ENDPOINT_URL = f"https://{config('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com"
-AWS_S3_CUSTOM_DOMAIN = f"{config('R2_BUCKET_NAME')}.{config('R2_ACCOUNT_ID')}.r2.cloudflarestorage.com"
+USE_CLOUDFLARE_R2 = config('USE_CLOUDFLARE_R2', default=True, cast=bool)
+
+# Consolidated R2 configuration options
+CLOUDFLARE_R2_CONFIG_OPTIONS = {
+    "bucket_name": config('R2_BUCKET_NAME', default='erp-system-files'),
+    "default_acl": "public-read", 
+    "signature_version": "s3v4",
+    "endpoint_url": config('R2_ENDPOINT_URL', default="https://your-account-id.r2.cloudflarestorage.com"),
+    "access_key": config('R2_ACCESS_KEY_ID', default='your-r2-access-key-id'),
+    "secret_key": config('R2_SECRET_ACCESS_KEY', default='your-r2-secret-access-key'),
+    "object_parameters": {
+        'CacheControl': 'max-age=86400',
+    },
+}
+
+# Custom domain for public access (if needed)
+CLOUDFLARE_R2_CUSTOM_DOMAIN = "https://pub-976c8f8962e94b189beeb9d2155cc15d.r2.dev"
+
+# Django 4.2+ STORAGES configuration
+STORAGES = {
+    "default": {
+        "BACKEND": "storages.backends.s3boto3.S3Boto3Storage",
+        "OPTIONS": CLOUDFLARE_R2_CONFIG_OPTIONS,
+    },
+    "staticfiles": {
+        "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
+    }
+}
+
+# Add reference to additional storage classes for specific use cases
+# These can be used by setting the storage parameter on FileField/ImageField
+PRIVATE_FILE_STORAGE = 'core.storage.PrivateCloudflareR2Storage'
+STATIC_R2_STORAGE = 'core.storage.StaticCloudflareR2Storage'
+
+# Set the media URL to use the custom domain
+MEDIA_URL = f"https://{CLOUDFLARE_R2_CUSTOM_DOMAIN}/"
+
+# Explicitly set the default file storage
+# DEFAULT_FILE_STORAGE = "storages.backends.s3.S3Storage"
+
+# Keep legacy settings for backwards compatibility
+AWS_ACCESS_KEY_ID = config('R2_ACCESS_KEY_ID', default='your-r2-access-key-id')
+AWS_SECRET_ACCESS_KEY = config('R2_SECRET_ACCESS_KEY', default='your-r2-secret-access-key')
+AWS_STORAGE_BUCKET_NAME = config('R2_BUCKET_NAME', default='erp-system-files')
+AWS_S3_ENDPOINT_URL = config('R2_ENDPOINT_URL', default="https://your-account-id.r2.cloudflarestorage.com")
+AWS_S3_CUSTOM_DOMAIN = CLOUDFLARE_R2_CUSTOM_DOMAIN
 AWS_QUERYSTRING_AUTH = True
 AWS_S3_FILE_OVERWRITE = False
-AWS_DEFAULT_ACL = None
+AWS_DEFAULT_ACL = "public-read"
 AWS_S3_OBJECT_PARAMETERS = {
     'CacheControl': 'max-age=86400',
 }
-
-# Media files
-MEDIA_URL = f"https://{AWS_S3_CUSTOM_DOMAIN}/"
-DEFAULT_FILE_STORAGE = 'storages.backends.s3boto3.S3Boto3Storage'
 
 # REST Framework configuration
 REST_FRAMEWORK = {
@@ -195,12 +238,18 @@ CORS_ALLOW_CREDENTIALS = True
 
 # Email Configuration
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
+EMAIL_HOST = config('EMAIL_HOST', default='smtp.resend.com')
 EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
 EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
-EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
-EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@example.com')
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='resend')
+EMAIL_HOST_PASSWORD = config('RESEND_API_KEY', default='')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='onboarding@resend.dev')
+
+# Resend SMTP Specific Settings
+RESEND_SMTP_HOST = 'smtp.resend.com'
+RESEND_SMTP_PORT = 587
+RESEND_SMTP_USERNAME = 'resend'
+# The RESEND_API_KEY is used from EMAIL_HOST_PASSWORD
 
 # Cache configuration
 CACHES = {
@@ -291,7 +340,7 @@ LOGGING = {
 os.makedirs(BASE_DIR / 'logs', exist_ok=True)
 
 # Sentry Configuration
-if not DEBUG:
+if not DEBUG and SENTRY_AVAILABLE:
     sentry_sdk.init(
         dsn=config('SENTRY_DSN', default=''),
         integrations=[

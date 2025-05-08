@@ -8,6 +8,10 @@ from .models import (
 from core.serializers import UserListSerializer
 from inventory.serializers import ProductSerializer
 from sales.serializers import CurrencySerializer
+from inventory.models import Product  # Import the Product model
+from sales.models import Currency  # Import the Currency model
+from inventory.models import Product  # Import the Product model
+from sales.models import Currency  # Import the Currency model
 
 
 class SupplierSerializer(serializers.ModelSerializer):

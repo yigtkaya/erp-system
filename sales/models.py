@@ -1,9 +1,10 @@
 # sales/models.py
 from django.db import models
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from decimal import Decimal
-from core.models import BaseModel, Customer, User
+from core.models import BaseModel, Customer
 from inventory.models import Product
 from common.models import FileVersionManager, ContentType
 
@@ -52,7 +53,7 @@ class SalesOrder(BaseModel):
     exchange_rate = models.DecimalField(max_digits=10, decimal_places=6, default=Decimal('1.0'))
     payment_terms = models.CharField(max_length=20, choices=PaymentTerms.choices)
     customer_po_number = models.CharField(max_length=50, blank=True, null=True)
-    salesperson = models.ForeignKey(User, on_delete=models.PROTECT, related_name='sales_orders')
+    salesperson = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='sales_orders')
     shipping_address = models.TextField()
     billing_address = models.TextField()
     notes = models.TextField(blank=True, null=True)
@@ -146,7 +147,7 @@ class SalesQuotation(BaseModel):
     currency = models.ForeignKey(Currency, on_delete=models.PROTECT)
     exchange_rate = models.DecimalField(max_digits=10, decimal_places=6, default=Decimal('1.0'))
     payment_terms = models.CharField(max_length=20, choices=PaymentTerms.choices)
-    salesperson = models.ForeignKey(User, on_delete=models.PROTECT, related_name='quotations')
+    salesperson = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='quotations')
     notes = models.TextField(blank=True, null=True)
     total_amount = models.DecimalField(max_digits=15, decimal_places=2, default=0)
     converted_to_order = models.ForeignKey(SalesOrder, on_delete=models.SET_NULL, null=True, blank=True)

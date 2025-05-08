@@ -4,6 +4,8 @@ from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.utils import timezone
 from django.core.exceptions import ValidationError
 import re
+from django.conf import settings
+from .storage import get_temporary_file_url
 
 class UserManager(BaseUserManager):
     def create_user(self, email, username, password=None, **extra_fields):
@@ -37,14 +39,14 @@ class BaseModel(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(
-        'User', 
+        settings.AUTH_USER_MODEL, 
         on_delete=models.SET_NULL, 
         null=True, 
         blank=True, 
         related_name="%(class)s_created"
     )
     modified_by = models.ForeignKey(
-        'User', 
+        settings.AUTH_USER_MODEL, 
         on_delete=models.SET_NULL, 
         null=True, 
         blank=True, 
@@ -116,7 +118,7 @@ class UserProfile(models.Model):
         return f"{self.user.username} - {self.employee_id}"
 
 class DepartmentMembership(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='department_memberships')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='department_memberships')
     department = models.ForeignKey(Department, on_delete=models.CASCADE, related_name='members')
     joined_at = models.DateTimeField(default=timezone.now)
     
@@ -166,7 +168,7 @@ class AuditLog(models.Model):
     record_id = models.IntegerField()
     action = models.CharField(max_length=10)  # CREATE, UPDATE, DELETE
     changed_data = models.JSONField()
-    changed_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
+    changed_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True)
     changed_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
@@ -203,3 +205,43 @@ class RolePermission(models.Model):
     
     def __str__(self):
         return f"{self.role} - {self.permission.name}"
+
+class PrivateDocument(models.Model):
+    """
+    Example model for storing private documents that are not publicly accessible.
+    These documents will require authentication to access.
+    """
+    title = models.CharField(max_length=255)
+    description = models.TextField(blank=True)
+    document = models.FileField(
+        upload_to='documents/%Y/%m/%d/',
+        storage=settings.PRIVATE_FILE_STORAGE if hasattr(settings, 'PRIVATE_FILE_STORAGE') else None
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='private_documents',
+        null=True
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return self.title
+    
+    def get_document_url(self, expire_seconds=None):
+        """
+        Generate a temporary URL for accessing the document
+        
+        Args:
+            expire_seconds: Number of seconds the URL will be valid
+        
+        Returns:
+            Temporary URL with configured expiration
+        """
+        return get_temporary_file_url(self.document.name, expire_seconds=expire_seconds)
+    
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'Private Document'
+        verbose_name_plural = 'Private Documents'

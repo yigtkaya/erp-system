@@ -71,7 +71,7 @@ class FileVersion(BaseModel):
     version_number = models.PositiveIntegerField(help_text="Version number of this file")
     file = models.FileField(
         upload_to=generate_file_path, 
-        storage=settings.DEFAULT_FILE_STORAGE if settings.USE_CLOUDFLARE_R2 else None
+        storage=settings.PRIVATE_FILE_STORAGE if settings.USE_CLOUDFLARE_R2 else None
     )
     original_filename = models.CharField(max_length=255, help_text="Original filename")
     file_extension = models.CharField(max_length=10)
@@ -323,6 +323,6 @@ class FileVersionManager:
             'total_files': total_files,
             'current_files': current_files,
             'total_size': total_size,
-            'total_versions': total_files - current_files
+            'total_versions': total_files - current_files,
             'average_file_size': total_size / total_files if total_files > 0 else 0,
        }

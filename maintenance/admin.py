@@ -1,5 +1,7 @@
 # maintenance/admin.py
 from django.contrib import admin
+# The models below don't exist yet - they will be implemented later
+"""
 from .models import (
     Equipment, MaintenancePlan, WorkOrder, MaintenanceTask,
     SparePart, MaintenancePartUsage, MaintenanceLog
@@ -37,3 +39,4 @@ class MaintenanceLogAdmin(admin.ModelAdmin):
     search_fields = ('description', 'action_taken')
     list_filter = ('log_type', 'equipment')
     date_hierarchy = 'log_date'
+"""

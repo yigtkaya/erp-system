@@ -1,0 +1,41 @@
+# Git
+.git
+.gitignore
+
+# Python
+*.pyc
+__pycache__/
+*.egg-info/
+.env
+venv/
+env/
+.venv/
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+docker-compose.yml
+
+# Logs
+logs/
+*.log
+
+# Media files (if not intended to be part of the image)
+# media/
+
+# Static files (if collected separately or served by CDN)
+# staticfiles/
+# static_dev/
+
+# Backup files
+*.bak
+*.tmp

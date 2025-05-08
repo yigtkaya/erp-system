@@ -1,9 +1,10 @@
 # quality/models.py
 from django.db import models
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from django.contrib.postgres.fields import JSONField
-from core.models import BaseModel, User
+from core.models import BaseModel
 from inventory.models import Product
 from manufacturing.models import WorkOrder, ProductionOutput
 from purchasing.models import GoodsReceipt, GoodsReceiptItem
@@ -85,7 +86,7 @@ class QualityInspection(BaseModel):
     inspection_number = models.CharField(max_length=50, unique=True)
     inspection_type = models.CharField(max_length=20, choices=InspectionType.choices)
     template = models.ForeignKey(InspectionTemplate, on_delete=models.PROTECT)
-    inspector = models.ForeignKey(User, on_delete=models.PROTECT, related_name='inspections')
+    inspector = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='inspections')
     inspection_date = models.DateTimeField(default=timezone.now)
     result = models.CharField(max_length=20, choices=InspectionResult.choices, default=InspectionResult.PENDING)
     
@@ -165,8 +166,8 @@ class NonConformance(BaseModel):
     root_cause = models.TextField(blank=True, null=True)
     corrective_action = models.TextField(blank=True, null=True)
     preventive_action = models.TextField(blank=True, null=True)
-    reported_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='reported_nonconformances')
-    assigned_to = models.ForeignKey(User, on_delete=models.PROTECT, related_name='assigned_nonconformances')
+    reported_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='reported_nonconformances')
+    assigned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='assigned_nonconformances')
     resolution_date = models.DateTimeField(null=True, blank=True)
     
     class Meta:
@@ -190,8 +191,8 @@ class QualityDocument(BaseModel):
     version = models.CharField(max_length=20)
     effective_date = models.DateField()
     review_date = models.DateField()
-    owner = models.ForeignKey(User, on_delete=models.PROTECT, related_name='owned_quality_documents')
-    approved_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='approved_quality_documents')
+    owner = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='owned_quality_documents')
+    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='approved_quality_documents')
     is_active = models.BooleanField(default=True)
     
     class Meta:

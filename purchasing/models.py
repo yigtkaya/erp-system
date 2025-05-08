@@ -1,9 +1,10 @@
 # purchasing/models.py
 from django.db import models
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from decimal import Decimal
-from core.models import BaseModel, User
+from core.models import BaseModel
 from inventory.models import Product
 from common.models import FileVersionManager, ContentType
 
@@ -49,8 +50,8 @@ class PurchaseOrder(BaseModel):
     status = models.CharField(max_length=20, choices=PurchaseOrderStatus.choices, default=PurchaseOrderStatus.DRAFT)
     currency = models.ForeignKey('sales.Currency', on_delete=models.PROTECT)
     exchange_rate = models.DecimalField(max_digits=10, decimal_places=6, default=Decimal('1.0'))
-    buyer = models.ForeignKey(User, on_delete=models.PROTECT, related_name='purchase_orders')
-    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_pos')
+    buyer = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='purchase_orders')
+    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_pos')
     approval_date = models.DateTimeField(null=True, blank=True)
     supplier_reference = models.CharField(max_length=100, blank=True, null=True)
     shipping_address = models.TextField()
@@ -122,7 +123,7 @@ class PurchaseOrderItem(BaseModel):
 
 class PurchaseRequisition(BaseModel):
     requisition_number = models.CharField(max_length=50, unique=True)
-    requested_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='purchase_requisitions')
+    requested_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='purchase_requisitions')
     request_date = models.DateField(default=timezone.now)
     required_date = models.DateField()
     status = models.CharField(max_length=20, choices=[
@@ -133,7 +134,7 @@ class PurchaseRequisition(BaseModel):
         ('CONVERTED', 'Converted to PO'),
         ('CANCELLED', 'Cancelled'),
     ], default='DRAFT')
-    approved_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_requisitions')
+    approved_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='approved_requisitions')
     approval_date = models.DateTimeField(null=True, blank=True)
     department = models.ForeignKey('core.Department', on_delete=models.PROTECT)
     notes = models.TextField(blank=True, null=True)
@@ -167,7 +168,7 @@ class GoodsReceipt(BaseModel):
     receipt_number = models.CharField(max_length=50, unique=True)
     purchase_order = models.ForeignKey(PurchaseOrder, on_delete=models.PROTECT, related_name='receipts')
     receipt_date = models.DateTimeField(default=timezone.now)
-    received_by = models.ForeignKey(User, on_delete=models.PROTECT, related_name='goods_receipts')
+    received_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='goods_receipts')
     supplier_delivery_note = models.CharField(max_length=100, blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
     

@@ -2,6 +2,10 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
+from .views import (
+    UserViewSet, DepartmentViewSet, CustomerViewSet, 
+    AuditLogViewSet, PrivateDocumentViewSet
+)
 
 app_name = 'core'
 
@@ -11,6 +15,7 @@ router.register(r'users', views.UserViewSet, basename='user')
 router.register(r'departments', views.DepartmentViewSet, basename='department')
 router.register(r'customers', views.CustomerViewSet, basename='customer')
 router.register(r'audit-logs', views.AuditLogViewSet, basename='audit-log')
+router.register(r'private-documents', PrivateDocumentViewSet, basename='private-document')
 
 # Split routes into versioned and non-versioned
 urlpatterns = [

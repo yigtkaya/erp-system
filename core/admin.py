@@ -2,7 +2,8 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.utils.translation import gettext_lazy as _
-from .models import User, Department, UserProfile, Customer, AuditLog
+from .models import User, Department, UserProfile, Customer, AuditLog, Permission, RolePermission, PrivateDocument
+from django.utils.safestring import mark_safe
 
 
 class UserProfileInline(admin.StackedInline):
@@ -60,6 +61,34 @@ class AuditLogAdmin(admin.ModelAdmin):
     
     def has_delete_permission(self, request, obj=None):
         return False
+
+
+@admin.register(PrivateDocument)
+class PrivateDocumentAdmin(admin.ModelAdmin):
+    list_display = ('title', 'created_at', 'updated_at')
+    search_fields = ('title', 'description')
+    readonly_fields = ('created_at', 'updated_at', 'document_url')
+    fieldsets = (
+        (None, {
+            'fields': ('title', 'description', 'document'),
+        }),
+        ('Document Access', {
+            'fields': ('document_url',),
+            'classes': ('collapse',),
+        }),
+        ('Metadata', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',),
+        }),
+    )
+    
+    def document_url(self, obj):
+        """Display a temporary URL to the document in the admin"""
+        if obj.document:
+            url = obj.get_document_url(expire_seconds=3600)  # 1 hour expiration
+            return mark_safe(f'<a href="{url}" target="_blank">Access document (URL expires in 1 hour)</a>')
+        return "No document attached"
+    document_url.short_description = "Document Access"
 
 
 admin.site.register(User, UserAdmin)

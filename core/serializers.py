@@ -6,7 +6,7 @@ from django.db import transaction
 from .models import (
     User, Department, Customer, UserProfile, 
     DepartmentMembership, AuditLog, Permission, 
-    RolePermission
+    RolePermission, PrivateDocument
 )
 
 User = get_user_model()
@@ -238,3 +238,21 @@ class AuditLogSerializer(serializers.ModelSerializer):
             'changed_data', 'changed_by', 'changed_at'
         ]
         read_only_fields = ['__all__']
+
+
+class PrivateDocumentSerializer(serializers.ModelSerializer):
+    document_url = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = PrivateDocument
+        fields = ['id', 'title', 'description', 'document', 'document_url', 'created_at', 'updated_at']
+        read_only_fields = ['created_at', 'updated_at']
+    
+    def get_document_url(self, obj):
+        """
+        Generate a temporary URL for the document
+        with a 5-minute expiration by default
+        """
+        # Default to 5 minute expiration
+        expire_seconds = self.context.get('expire_seconds', 300)
+        return obj.get_document_url(expire_seconds=expire_seconds)
