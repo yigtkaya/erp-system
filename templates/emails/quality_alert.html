@@ -1,0 +1,47 @@
+{% extends "emails/base.html" %} {% block title %}Quality Alert - NC{{
+nonconformance.nc_number }}{% endblock %} {% block header %}Quality
+Nonconformance Alert{% endblock %} {% block content %}
+<h2>Quality Nonconformance Alert</h2>
+
+<p>
+  A new nonconformance has been reported and assigned to you for investigation:
+</p>
+
+<div class="info-box">
+  <h3>Nonconformance Details:</h3>
+  <ul>
+    <li><strong>NC Number:</strong> {{ nonconformance.nc_number }}</li>
+    <li>
+      <strong>Product:</strong> {{ product.product_code }} - {{
+      product.product_name }}
+    </li>
+    <li>
+      <strong>Severity:</strong>
+      <span
+        class="{% if nonconformance.severity == 'CRITICAL' %}warning{% endif %}"
+        >{{ nonconformance.get_severity_display }}</span
+      >
+    </li>
+    <li><strong>Status:</strong> {{ nonconformance.get_status_display }}</li>
+    <li>
+      <strong>Reported By:</strong> {{ nonconformance.reported_by.get_full_name
+      }}
+    </li>
+    <li>
+      <strong>Reported Date:</strong> {{ nonconformance.created_at|date:"F d, Y
+      H:i" }}
+    </li>
+  </ul>
+</div>
+
+<p><strong>Description:</strong></p>
+<p>{{ nonconformance.description }}</p>
+
+<p>Please investigate this nonconformance and take appropriate action.</p>
+
+<p style="text-align: center">
+  <a href="{{ nc_url }}" class="button">View Nonconformance</a>
+</p>
+
+<p>Best regards,<br />The Quality Control System</p>
+{% endblock %}

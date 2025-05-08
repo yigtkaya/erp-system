@@ -1,0 +1,62 @@
+{% extends "emails/base.html" %} {% block title %}Order Confirmation - {{
+order.order_number }}{% endblock %} {% block header %}Order Confirmation{%
+endblock %} {% block content %}
+<h2>Order Confirmation</h2>
+
+<p>Dear {{ order.customer.name }},</p>
+
+<p>
+  Thank you for your order. We are pleased to confirm that we have received your
+  order and it is being processed.
+</p>
+
+<div class="info-box">
+  <h3>Order Details:</h3>
+  <ul>
+    <li><strong>Order Number:</strong> {{ order.order_number }}</li>
+    <li><strong>Order Date:</strong> {{ order.order_date|date:"F d, Y" }}</li>
+    <li>
+      <strong>Delivery Date:</strong> {{ order.delivery_date|date:"F d, Y" }}
+    </li>
+    <li>
+      <strong>Total Amount:</strong> {{ order.currency.symbol }}{{
+      order.total_amount|floatformat:2 }}
+    </li>
+  </ul>
+</div>
+
+<h3>Order Items:</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Product</th>
+      <th>Quantity</th>
+      <th>Unit Price</th>
+      <th>Total</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for item in order.items.all %}
+    <tr>
+      <td>{{ item.product.product_name }}</td>
+      <td>{{ item.quantity }}</td>
+      <td>{{ order.currency.symbol }}{{ item.unit_price|floatformat:2 }}</td>
+      <td>{{ order.currency.symbol }}{{ item.total_price|floatformat:2 }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<p>You can track your order status by clicking the button below:</p>
+
+<p style="text-align: center">
+  <a href="{{ order_url }}" class="button">Track Order</a>
+</p>
+
+<p>
+  If you have any questions about your order, please don't hesitate to contact
+  us.
+</p>
+
+<p>Best regards,<br />The Sales Team</p>
+{% endblock %}

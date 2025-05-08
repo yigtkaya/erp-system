@@ -1,0 +1,36 @@
+{% extends "emails/base.html" %} {% block title %}Low Stock Alert - {{
+product.product_code }}{% endblock %} {% block header %}Low Stock Alert{%
+endblock %} {% block content %}
+<h2>Low Stock Alert</h2>
+
+<p>
+  This is an automated alert to inform you that the following product has
+  reached its reorder point:
+</p>
+
+<div class="info-box">
+  <h3>Product Details:</h3>
+  <ul>
+    <li><strong>Product Code:</strong> {{ product.product_code }}</li>
+    <li><strong>Product Name:</strong> {{ product.product_name }}</li>
+    <li>
+      <strong>Current Stock:</strong>
+      <span class="warning">{{ product.current_stock }}</span>
+    </li>
+    <li><strong>Reorder Point:</strong> {{ product.reorder_point }}</li>
+    <li>
+      <strong>Unit of Measure:</strong> {{ product.unit_of_measure.unit_code }}
+    </li>
+  </ul>
+</div>
+
+<p>Please take action to replenish the stock to avoid stockout situations.</p>
+
+<p style="text-align: center">
+  <a href="{{ product_url }}" class="button">View Product</a>
+</p>
+
+<p>A purchase requisition has been automatically created for this product.</p>
+
+<p>Best regards,<br />The Inventory Management System</p>
+{% endblock %}

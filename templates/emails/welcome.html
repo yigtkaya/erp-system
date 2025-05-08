@@ -1,0 +1,30 @@
+{% extends "emails/base.html" %} {% block title %}Welcome to ERP System{%
+endblock %} {% block header %}Welcome to ERP System{% endblock %} {% block
+content %}
+<h2>Hello {{ user.first_name|default:user.username }},</h2>
+
+<p>Welcome to our ERP System! Your account has been successfully created.</p>
+
+<div class="info-box">
+  <h3>Account Details:</h3>
+  <ul>
+    <li><strong>Username:</strong> {{ user.username }}</li>
+    <li><strong>Email:</strong> {{ user.email }}</li>
+    <li><strong>Role:</strong> {{ user.get_role_display }}</li>
+    <li>
+      <strong>Department:</strong> {{ user.profile.department.name|default:"Not
+      assigned" }}
+    </li>
+  </ul>
+</div>
+
+<p>You can now log in to the system using your credentials.</p>
+
+<p style="text-align: center">
+  <a href="{{ login_url }}" class="button">Login to ERP</a>
+</p>
+
+<p>If you have any questions, please contact your system administrator.</p>
+
+<p>Best regards,<br />The ERP Team</p>
+{% endblock %}

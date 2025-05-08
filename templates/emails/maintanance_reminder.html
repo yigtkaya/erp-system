@@ -1,0 +1,47 @@
+{% extends "emails/base.html" %} {% block title %}Maintenance Reminder - {{
+equipment.name }}{% endblock %} {% block header %}Maintenance Reminder{%
+endblock %} {% block content %}
+<h2>Scheduled Maintenance Reminder</h2>
+
+<p>
+  Dear {{
+  work_order.assigned_to.first_name|default:work_order.assigned_to.username }},
+</p>
+
+<p>
+  This is a reminder about the scheduled maintenance for the following
+  equipment:
+</p>
+
+<div class="info-box">
+  <h3>Maintenance Details:</h3>
+  <ul>
+    <li><strong>Work Order:</strong> {{ work_order.work_order_number }}</li>
+    <li>
+      <strong>Equipment:</strong> {{ equipment.name }} ({{ equipment.code }})
+    </li>
+    <li>
+      <strong>Maintenance Type:</strong> {{
+      work_order.get_maintenance_type_display }}
+    </li>
+    <li>
+      <strong>Scheduled Date:</strong> {{ scheduled_date|date:"F d, Y H:i" }}
+    </li>
+    <li><strong>Priority:</strong> {{ work_order.get_priority_display }}</li>
+  </ul>
+</div>
+
+<p><strong>Description:</strong></p>
+<p>{{ work_order.description }}</p>
+
+<p style="text-align: center">
+  <a href="{{ work_order_url }}" class="button">View Work Order</a>
+</p>
+
+<p>
+  Please ensure you complete this maintenance on time to avoid equipment
+  downtime.
+</p>
+
+<p>Best regards,<br />The Maintenance Management System</p>
+{% endblock %}
