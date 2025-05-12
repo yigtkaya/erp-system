@@ -1,0 +1,25 @@
+# Development Dockerfile
+FROM python:3.11-slim-bullseye
+
+ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE 1
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install dependencies first for caching
+COPY requirements/dev.txt requirements/
+COPY requirements/dev.txt requirements/
+RUN pip install --upgrade pip && \
+    pip install -r requirements/dev.txt
+
+COPY . .
+
+# Development-specific settings
+ENV DJANGO_SETTINGS_MODULE=erp_core.settings.dev
+ENV DEBUG=True 

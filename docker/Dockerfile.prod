@@ -1,0 +1,36 @@
+# Production Dockerfile
+FROM python:3.11-slim-bullseye as builder
+
+ENV PYTHONUNBUFFERED 1
+ENV PYTHONDONTWRITEBYTECODE 1
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements/ requirements/
+RUN pip install --upgrade pip && \
+    pip install --user -r requirements/prod.txt
+
+# Final stage
+FROM python:3.11-slim-bullseye
+
+WORKDIR /app
+ENV PATH="/app/.local/bin:${PATH}"
+
+# Copy only necessary files from builder
+COPY --from=builder /root/.local /root/.local
+COPY --from=builder /app/requirements /app/requirements
+COPY . .
+
+# Production-specific settings
+ENV DJANGO_SETTINGS_MODULE=erp_core.settings.prod
+ENV DEBUG=False
+
+RUN python manage.py collectstatic --noinput
+
+CMD ["gunicorn", "--bind", "0.0.0.0:8000", "--workers", "4", "erp_core.wsgi:application"] 

@@ -1,0 +1,56 @@
+version: "3.8"
+
+services:
+  web:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.prod
+    restart: unless-stopped
+    env_file:
+      - .env.prod
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+      - redis
+
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+
+  redis:
+    image: redis:7
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD}
+
+  celery:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.prod
+    command: celery -A erp_core worker --loglevel=info
+    env_file:
+      - .env.prod
+    depends_on:
+      - redis
+      - db
+
+  celery-beat:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.prod
+    command: celery -A erp_core beat --loglevel=info
+    env_file:
+      - .env.prod
+    depends_on:
+      - redis
+      - db
+
+volumes:
+  postgres_data:
