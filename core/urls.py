@@ -20,7 +20,7 @@ router.register(r'private-documents', PrivateDocumentViewSet, basename='private-
 # Split routes into versioned and non-versioned
 urlpatterns = [
     # Versioned API endpoints 
-    path('v1/', include(router.urls)),
+    path('', include(router.urls)),
     
     # Auth endpoints typically don't need versioning
     path('auth/login/', views.LoginView.as_view(), name='login'),

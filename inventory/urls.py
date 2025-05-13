@@ -1,13 +1,13 @@
 # inventory/urls.py
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from . import views
+from .views import ProductViewSet, RawMaterialViewSet
 
 app_name = 'inventory'
 
 router = DefaultRouter()
-# Register your viewsets here
-# Example: router.register(r'products', views.ProductViewSet)
+router.register(r'products', ProductViewSet)
+router.register(r'raw-materials', RawMaterialViewSet)
 
 urlpatterns = [
     # Include router URLs

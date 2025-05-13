@@ -5,6 +5,8 @@ from core.models import BaseModel, Customer
 from common.models import FileVersionManager, ContentType
 from django.utils import timezone
 from django.conf import settings
+from django.core.validators import MinValueValidator
+from django.apps import apps
 import re
 
 
@@ -23,6 +25,106 @@ class MaterialType(models.TextChoices):
     COPPER = 'COPPER', 'Copper'
     PLASTIC = 'PLASTIC', 'Plastic'
     OTHER = 'OTHER', 'Other'
+
+
+class RawMaterial(BaseModel):
+    material_code = models.CharField(max_length=50, unique=True)
+    material_name = models.CharField(max_length=100)
+    current_stock = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    reserved_stock = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    unit = models.ForeignKey('UnitOfMeasure', on_delete=models.PROTECT)
+    inventory_category = models.ForeignKey('InventoryCategory', on_delete=models.PROTECT, null=True, blank=True)
+    material_type = models.CharField(max_length=20, choices=MaterialType.choices, default=MaterialType.STEEL)
+    
+    # Specifications
+    width = models.FloatField(null=True, blank=True, validators=[MinValueValidator(0.0)])
+    height = models.FloatField(null=True, blank=True, validators=[MinValueValidator(0.0)])
+    thickness = models.FloatField(null=True, blank=True, validators=[MinValueValidator(0.0)])
+    diameter_mm = models.FloatField(null=True, blank=True, validators=[MinValueValidator(0.0)])
+    weight_per_unit = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
+    
+    # Inventory management
+    reorder_point = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    lead_time_days = models.IntegerField(null=True, blank=True)
+    
+    # Additional info
+    description = models.TextField(blank=True, null=True)
+    is_active = models.BooleanField(default=True)
+    tags = models.JSONField(null=True, blank=True, help_text="List of tags for searching")
+
+    class Meta:
+        db_table = 'raw_materials'
+        verbose_name = "Raw Material"
+        verbose_name_plural = "Raw Materials"
+        ordering = ['material_code']
+        indexes = [
+            models.Index(fields=['material_code']),
+            models.Index(fields=['material_type']),
+            models.Index(fields=['inventory_category']),
+            models.Index(fields=['is_active']),
+        ]
+
+    def clean(self):
+        # Validate material code format
+        if not re.match(r'^[A-Za-z0-9\-\.]+$', self.material_code):
+            raise ValidationError({
+                'material_code': 'Material code can only contain letters, numbers, hyphens, and periods'
+            })
+            
+        # Validate inventory category
+        if self.inventory_category and self.inventory_category.name not in ['HAMMADDE', 'HURDA', 'KARANTINA']:
+            raise ValidationError({
+                'inventory_category': "Raw materials can only be in HAMMADDE, HURDA, or KARANTINA categories"
+            })
+
+    @property
+    def available_stock(self):
+        return self.current_stock - self.reserved_stock
+        
+    @property
+    def is_below_reorder_point(self):
+        if self.reorder_point is not None:
+            return self.available_stock <= self.reorder_point
+        return False
+
+    def __str__(self):
+        return f"{self.material_code} - {self.material_name}"
+        
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+        
+    def get_process_components(self):
+        """Get all process components that use this raw material."""
+        components = apps.get_model('manufacturing', 'BOMComponent').objects.filter(
+            material=self,
+            bom__product__product_type__in=['SEMI', 'SINGLE']
+        )
+        return components
+        
+    # File management methods
+    def get_images(self, current_only=True):
+        """Get material images from file system"""
+        if current_only:
+            return FileVersionManager.get_current(
+                content_type=ContentType.MATERIAL_IMAGE,
+                object_id=str(self.id)
+            )
+        else:
+            return FileVersionManager.get_all_versions(
+                content_type=ContentType.MATERIAL_IMAGE,
+                object_id=str(self.id)
+            )
+    
+    def upload_image(self, file, notes=None, user=None):
+        """Upload a material image"""
+        return FileVersionManager.create_version(
+            file=file,
+            content_type=ContentType.MATERIAL_IMAGE,
+            object_id=str(self.id),
+            notes=notes,
+            user=user
+        )
 
 
 class InventoryCategory(BaseModel):
@@ -61,10 +163,9 @@ class Product(BaseModel):
     reserved_stock = models.IntegerField(default=0)
     reorder_point = models.IntegerField(null=True, blank=True)
     lead_time_days = models.IntegerField(null=True, blank=True)
-    unit_of_measure = models.ForeignKey(UnitOfMeasure, on_delete=models.PROTECT)
+    unit_of_measure = models.ForeignKey('UnitOfMeasure', on_delete=models.PROTECT)
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, null=True, blank=True)
-    inventory_category = models.ForeignKey(InventoryCategory, on_delete=models.PROTECT)
-    material_type = models.CharField(max_length=20, choices=MaterialType.choices, null=True, blank=True)
+    inventory_category = models.ForeignKey('InventoryCategory', on_delete=models.PROTECT)
     weight = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
     dimensions = models.JSONField(null=True, blank=True, help_text="Length, Width, Height in mm")
     is_active = models.BooleanField(default=True)
@@ -157,7 +258,7 @@ class Product(BaseModel):
 
 
 class TechnicalDrawing(BaseModel):
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='technical_drawings')
+    product = models.ForeignKey('Product', on_delete=models.CASCADE, related_name='technical_drawings')
     version = models.CharField(max_length=20)
     drawing_code = models.CharField(max_length=50)
     effective_date = models.DateField()
@@ -223,8 +324,8 @@ class TechnicalDrawing(BaseModel):
 
 
 class ProductBOM(BaseModel):
-    parent_product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='bom_items')
-    child_product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='used_in_products')
+    parent_product = models.ForeignKey('Product', on_delete=models.CASCADE, related_name='bom_items')
+    child_product = models.ForeignKey('Product', on_delete=models.CASCADE, related_name='used_in_products')
     quantity = models.DecimalField(max_digits=10, decimal_places=3)
     scrap_percentage = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     operation_sequence = models.IntegerField(null=True, blank=True)
@@ -268,8 +369,8 @@ class ProductBOM(BaseModel):
 
 
 class ProductStock(BaseModel):
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='stock')
-    category = models.ForeignKey(InventoryCategory, on_delete=models.PROTECT)
+    product = models.ForeignKey('Product', on_delete=models.CASCADE, related_name='stock')
+    category = models.ForeignKey('InventoryCategory', on_delete=models.PROTECT)
     quantity = models.DecimalField(max_digits=10, decimal_places=3, default=0)
     location = models.CharField(max_length=100, null=True, blank=True)
     batch_number = models.CharField(max_length=50, null=True, blank=True)
@@ -300,12 +401,13 @@ class StockTransactionType(models.TextChoices):
 
 # New model for stock transactions
 class StockTransaction(BaseModel):
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='transactions')
+    product = models.ForeignKey('Product', on_delete=models.CASCADE, related_name='transactions', null=True, blank=True)
+    raw_material = models.ForeignKey('RawMaterial', on_delete=models.CASCADE, related_name='transactions', null=True, blank=True)
     transaction_type = models.CharField(max_length=30, choices=StockTransactionType.choices)
     transaction_date = models.DateTimeField(default=timezone.now)
     quantity = models.DecimalField(max_digits=10, decimal_places=3)
     unit_cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    category = models.ForeignKey(InventoryCategory, on_delete=models.PROTECT, related_name='transactions')
+    category = models.ForeignKey('InventoryCategory', on_delete=models.PROTECT, related_name='transactions')
     location = models.CharField(max_length=100, null=True, blank=True)
     batch_number = models.CharField(max_length=50, null=True, blank=True)
     reference = models.CharField(max_length=100, null=True, blank=True)
@@ -326,20 +428,35 @@ class StockTransaction(BaseModel):
         ordering = ['-transaction_date']
         indexes = [
             models.Index(fields=['product', 'transaction_date']),
+            models.Index(fields=['raw_material', 'transaction_date']),
             models.Index(fields=['transaction_type']),
             models.Index(fields=['reference']),
             models.Index(fields=['category']),
             models.Index(fields=['batch_number']),
         ]
     
+    def clean(self):
+        # Ensure either product or raw_material is set, but not both
+        if self.product and self.raw_material:
+            raise ValidationError("A transaction cannot be associated with both a product and a raw material")
+        if not self.product and not self.raw_material:
+            raise ValidationError("A transaction must be associated with either a product or a raw material")
+    
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+    
     def __str__(self):
-        return f"{self.product.product_code} - {self.get_transaction_type_display()} - {self.quantity}"
+        item_code = self.product.product_code if self.product else self.raw_material.material_code
+        item_type = "Product" if self.product else "Material"
+        return f"{item_type} {item_code} - {self.get_transaction_type_display()} - {self.quantity}"
 
 
 class StockMovement(BaseModel):
-    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='movements')
-    from_category = models.ForeignKey(InventoryCategory, on_delete=models.PROTECT, related_name='outgoing_movements')
-    to_category = models.ForeignKey(InventoryCategory, on_delete=models.PROTECT, related_name='incoming_movements')
+    product = models.ForeignKey('Product', on_delete=models.CASCADE, related_name='movements', null=True, blank=True)
+    raw_material = models.ForeignKey('RawMaterial', on_delete=models.CASCADE, related_name='movements', null=True, blank=True)
+    from_category = models.ForeignKey('InventoryCategory', on_delete=models.PROTECT, related_name='outgoing_movements')
+    to_category = models.ForeignKey('InventoryCategory', on_delete=models.PROTECT, related_name='incoming_movements')
     quantity = models.DecimalField(max_digits=10, decimal_places=3)
     movement_date = models.DateTimeField(default=timezone.now)
     reference_type = models.CharField(max_length=50, null=True, blank=True)
@@ -350,9 +467,27 @@ class StockMovement(BaseModel):
     class Meta:
         db_table = 'stock_movements'
         ordering = ['-movement_date']
-        
+        indexes = [
+            models.Index(fields=['product']),
+            models.Index(fields=['raw_material']),
+            models.Index(fields=['movement_date']),
+        ]
+    
+    def clean(self):
+        # Ensure either product or raw_material is set, but not both
+        if self.product and self.raw_material:
+            raise ValidationError("A movement cannot be associated with both a product and a raw material")
+        if not self.product and not self.raw_material:
+            raise ValidationError("A movement must be associated with either a product or a raw material")
+    
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+    
     def __str__(self):
-        return f"{self.product.product_code} - {self.from_category.name} to {self.to_category.name}: {self.quantity}"
+        item_code = self.product.product_code if self.product else self.raw_material.material_code
+        item_type = "Product" if self.product else "Material"
+        return f"{item_type} {item_code} - {self.from_category.name} to {self.to_category.name}: {self.quantity}"
 
 
 
@@ -415,7 +550,7 @@ class Tool(BaseModel):
 
 # New model for tool usage tracking
 class ToolUsage(BaseModel):
-    tool = models.ForeignKey(Tool, on_delete=models.CASCADE, related_name='usages')
+    tool = models.ForeignKey('Tool', on_delete=models.CASCADE, related_name='usages')
     work_order = models.ForeignKey('manufacturing.WorkOrder', on_delete=models.CASCADE, related_name='tool_usages')
     issued_date = models.DateTimeField(default=timezone.now)
     issued_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='issued_tools')

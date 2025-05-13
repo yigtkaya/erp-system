@@ -5,7 +5,10 @@ from django.utils import timezone
 from django.db.models import Sum, F, Q, Case, When, Value, FloatField, ExpressionWrapper, OuterRef, Subquery
 from django.db.models.functions import Coalesce
 from decimal import Decimal
-from .models import Product, StockMovement, ProductStock, StockTransaction, StockTransactionType, InventoryCategory
+from .models import (
+    Product, RawMaterial, StockMovement, ProductStock, StockTransaction, 
+    StockTransactionType, InventoryCategory
+)
 
 class StockManager:
     @staticmethod
@@ -403,3 +406,138 @@ class StockManager:
                 0
             )
         ).order_by('-total_value')
+
+    # Raw Material stock management functions
+    @staticmethod
+    @transaction.atomic
+    def reserve_raw_material_stock(raw_material, quantity, reference_type, reference_id):
+        """Reserve raw material stock for production"""
+        if raw_material.available_stock < quantity:
+            raise ValidationError(f"Insufficient stock. Available: {raw_material.available_stock}")
+        
+        raw_material.reserved_stock += quantity
+        raw_material.save()
+        
+        StockMovement.objects.create(
+            raw_material=raw_material,
+            from_category=raw_material.inventory_category,
+            to_category=raw_material.inventory_category,
+            quantity=quantity,
+            reference_type=reference_type,
+            reference_id=reference_id,
+            notes="Stock reservation"
+        )
+    
+    @staticmethod
+    @transaction.atomic
+    def consume_raw_material_stock(raw_material, quantity, reference_type, reference_id):
+        """Consume raw material stock for production"""
+        if raw_material.current_stock < quantity:
+            raise ValidationError(f"Insufficient stock. Current: {raw_material.current_stock}")
+        
+        raw_material.current_stock -= quantity
+        if raw_material.reserved_stock >= quantity:
+            raw_material.reserved_stock -= quantity
+        raw_material.save()
+        
+        # Get production category
+        production_category = InventoryCategory.objects.get(name='PROSES')
+        
+        StockTransaction.objects.create(
+            raw_material=raw_material,
+            transaction_type=StockTransactionType.PRODUCTION_ISSUE,
+            quantity=-quantity,
+            category=raw_material.inventory_category,
+            reference=reference_id,
+            notes=f"Consumed for {reference_type} {reference_id}"
+        )
+    
+    @staticmethod
+    @transaction.atomic
+    def receive_raw_material_stock(raw_material, quantity, reference_type, reference_id, category=None):
+        """Receive raw material stock from purchases"""
+        raw_material.current_stock += quantity
+        raw_material.save()
+        
+        if category is None:
+            category = raw_material.inventory_category
+        
+        StockTransaction.objects.create(
+            raw_material=raw_material,
+            transaction_type=StockTransactionType.PURCHASE_RECEIPT,
+            quantity=quantity,
+            category=category,
+            reference=reference_id,
+            notes=f"Received from {reference_type} {reference_id}"
+        )
+    
+    @staticmethod
+    def get_raw_material_stock_history(raw_material, start_date=None, end_date=None):
+        """
+        Get stock history for a raw material
+        """
+        if not start_date:
+            # Default to last 30 days
+            start_date = timezone.now().date() - timezone.timedelta(days=30)
+        if not end_date:
+            end_date = timezone.now().date() + timezone.timedelta(days=1)  # Include today
+            
+        return StockTransaction.objects.filter(
+            raw_material=raw_material,
+            transaction_date__range=(start_date, end_date)
+        ).select_related(
+            'raw_material', 'category', 'work_order', 'purchase_order'
+        ).order_by('transaction_date')
+    
+    @staticmethod
+    @transaction.atomic
+    def transfer_raw_material(raw_material, from_category, to_category, quantity, reference=None, notes=None, user=None):
+        """
+        Transfer raw material from one category to another
+        """
+        if quantity <= 0:
+            raise ValueError("Quantity must be positive")
+        
+        # Check if there's enough stock
+        if raw_material.current_stock < quantity:
+            raise ValueError(f"Insufficient stock. Only {raw_material.current_stock} available.")
+        
+        # Create the stock movement record
+        movement = StockMovement.objects.create(
+            raw_material=raw_material,
+            from_category=from_category,
+            to_category=to_category,
+            quantity=quantity,
+            reference_type=reference,
+            notes=notes,
+            created_by=user
+        )
+        
+        # Create transaction records
+        timestamp = timezone.now()
+        
+        # Record the stock issue transaction
+        StockTransaction.objects.create(
+            raw_material=raw_material,
+            transaction_type=StockTransactionType.TRANSFER_OUT,
+            transaction_date=timestamp,
+            quantity=-quantity,  # Negative for outgoing
+            category=from_category,
+            reference=reference,
+            notes=notes,
+            created_by=user
+        )
+        
+        # Record the stock receipt transaction
+        StockTransaction.objects.create(
+            raw_material=raw_material,
+            transaction_type=StockTransactionType.TRANSFER_IN,
+            transaction_date=timestamp,
+            quantity=quantity,  # Positive for incoming
+            category=to_category,
+            reference=reference,
+            notes=notes,
+            created_by=user
+        )
+        
+        return movement
