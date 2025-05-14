@@ -1,6 +1,9 @@
 # inventory/serializers.py
 from rest_framework import serializers
-from .models import Product, RawMaterial, InventoryCategory, UnitOfMeasure, StockTransaction
+from .models import (
+    Product, RawMaterial, InventoryCategory, UnitOfMeasure, StockTransaction,
+    Tool, ToolUsage, Holder, Fixture, ControlGauge # Added Tool, ToolUsage and uncommented others
+)
 
 class ProductSerializer(serializers.ModelSerializer):
     """Serializer for Product model"""
@@ -31,4 +34,39 @@ class RawMaterialSerializer(serializers.ModelSerializer):
             'width': {'min_value': 0.01},
             'height': {'min_value': 0.01},
             'thickness': {'min_value': 0.01}
-        } 
+        }
+
+class ToolSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Tool
+        fields = '__all__'
+        read_only_fields = ['id', 'created_at', 'modified_at']
+
+class ToolUsageSerializer(serializers.ModelSerializer):
+    tool_stock_code = serializers.CharField(source='tool.stock_code', read_only=True)
+    issued_by_username = serializers.CharField(source='issued_by.username', read_only=True, allow_null=True)
+    returned_to_username = serializers.CharField(source='returned_to.username', read_only=True, allow_null=True)
+    # work_order_number = serializers.CharField(source='work_order.work_order_number', read_only=True, allow_null=True) # If work_order is added back
+
+    class Meta:
+        model = ToolUsage
+        fields = '__all__'
+        read_only_fields = ['id', 'created_at', 'modified_at']
+
+class HolderSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Holder
+        fields = '__all__'
+        read_only_fields = ['created_at', 'modified_at']
+
+class FixtureSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Fixture
+        fields = '__all__'
+        read_only_fields = ['created_at', 'modified_at']
+
+class ControlGaugeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ControlGauge
+        fields = '__all__'
+        read_only_fields = ['created_at', 'modified_at'] 

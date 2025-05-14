@@ -3,8 +3,14 @@ from rest_framework import viewsets, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
-from .models import Product, RawMaterial, StockTransaction
-from .serializers import ProductSerializer, RawMaterialSerializer
+from .models import (
+    Product, RawMaterial, StockTransaction,
+    Tool, ToolUsage, Holder, Fixture, ControlGauge
+)
+from .serializers import (
+    ProductSerializer, RawMaterialSerializer,
+    ToolSerializer, ToolUsageSerializer, HolderSerializer, FixtureSerializer, ControlGaugeSerializer
+)
 from .stock_manager import StockManager
 
 
@@ -54,3 +60,48 @@ class RawMaterialViewSet(viewsets.ModelViewSet):
             'notes': transaction.notes
         } for transaction in history]
         return Response(data)
+
+
+class ToolViewSet(viewsets.ModelViewSet):
+    queryset = Tool.objects.all()
+    serializer_class = ToolSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['tool_type', 'status', 'supplier_name']
+    search_fields = ['stock_code', 'supplier_name', 'product_code', 'tool_insert_code', 'description']
+    ordering_fields = ['stock_code', 'supplier_name', 'tool_type', 'status', 'quantity']
+
+
+class ToolUsageViewSet(viewsets.ModelViewSet):
+    queryset = ToolUsage.objects.all()
+    serializer_class = ToolUsageSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['tool__stock_code', 'issued_by', 'returned_to', 'condition_before', 'condition_after']
+    search_fields = ['tool__stock_code', 'notes', 'issued_by__username', 'returned_to__username']
+    ordering_fields = ['issued_date', 'returned_date', 'tool__stock_code']
+
+
+class HolderViewSet(viewsets.ModelViewSet):
+    queryset = Holder.objects.all()
+    serializer_class = HolderSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['holder_type', 'status', 'supplier_name', 'water_cooling', 'distance_cooling']
+    search_fields = ['stock_code', 'supplier_name', 'product_code', 'description']
+    ordering_fields = ['stock_code', 'supplier_name', 'holder_type', 'status']
+
+
+class FixtureViewSet(viewsets.ModelViewSet):
+    queryset = Fixture.objects.all()
+    serializer_class = FixtureSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['status']
+    search_fields = ['code', 'name']
+    ordering_fields = ['code', 'name', 'status']
+
+
+class ControlGaugeViewSet(viewsets.ModelViewSet):
+    queryset = ControlGauge.objects.all()
+    serializer_class = ControlGaugeSerializer
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+    filterset_fields = ['status', 'calibration_per_year', 'brand', 'stock_type']
+    search_fields = ['stock_code', 'stock_name', 'serial_number', 'brand', 'model', 'certificate_no', 'current_location']
+    ordering_fields = ['stock_code', 'stock_name', 'status', 'upcoming_calibration_date']

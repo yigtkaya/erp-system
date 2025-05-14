@@ -1,4 +1,6 @@
 # inventory/models.py
+import uuid
+from decimal import Decimal
 from django.db import models
 from django.core.exceptions import ValidationError
 from core.models import BaseModel, Customer
@@ -492,128 +494,175 @@ class StockMovement(BaseModel):
 
 
 
-# New model for Tool
-class ToolStatus(models.TextChoices):
+# Enums for new models
+class ToolHolderStatus(models.TextChoices):
     AVAILABLE = 'AVAILABLE', 'Available'
     IN_USE = 'IN_USE', 'In Use'
     MAINTENANCE = 'MAINTENANCE', 'Under Maintenance'
     BROKEN = 'BROKEN', 'Broken'
     RETIRED = 'RETIRED', 'Retired'
 
+class Status(models.TextChoices): # Assuming this is a general status, adjust if it's specific
+    ACTIVE = 'ACTIVE', 'Active'
+    INACTIVE = 'INACTIVE', 'Inactive'
+    # Add other statuses as needed, e.g., for Fixture
 
+
+# New Models
 class Tool(BaseModel):
-    tool_code = models.CharField(max_length=50, unique=True)
-    name = models.CharField(max_length=100)
-    description = models.TextField(blank=True, null=True)
-    tool_type = models.CharField(max_length=50)
-    size = models.CharField(max_length=50, blank=True, null=True)
-    manufacturer = models.CharField(max_length=100, blank=True, null=True)
-    status = models.CharField(max_length=20, choices=ToolStatus.choices, default=ToolStatus.AVAILABLE)
-    location = models.CharField(max_length=100, blank=True, null=True)
-    
-    # Tool specific attributes
-    max_usage_count = models.IntegerField(null=True, blank=True)
-    current_usage_count = models.IntegerField(default=0)
-    last_maintenance_date = models.DateField(null=True, blank=True)
-    maintenance_interval_days = models.IntegerField(default=90)
-    next_maintenance_date = models.DateField(null=True, blank=True)
-    
-    # Physical characteristics
-    dimensions = models.JSONField(null=True, blank=True)
-    material = models.CharField(max_length=100, blank=True, null=True)
-    
-    # Purchase information
-    purchase_date = models.DateField(null=True, blank=True)
-    cost = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    supplier = models.ForeignKey('purchasing.Supplier', on_delete=models.SET_NULL, null=True, blank=True)
-    
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, related_name='created_tools')
-    
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    stock_code = models.CharField(max_length=50, unique=True, db_index=True, default='')
+    supplier_name = models.CharField(max_length=100, default='')
+    product_code = models.CharField(max_length=50, default='')
+    unit_price_tl = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    unit_price_euro = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    unit_price_usd = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    tool_insert_code = models.CharField(max_length=100, default='')
+    tool_material = models.CharField(max_length=100, default='')
+    tool_diameter = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    tool_length = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    tool_width = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    tool_height = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    tool_angle = models.FloatField(default=0.0)
+    tool_radius = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    tool_connection_diameter = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    tool_type = models.CharField(max_length=50, default='')
+    status = models.CharField(max_length=20, choices=ToolHolderStatus.choices, default=ToolHolderStatus.AVAILABLE)
+    row = models.IntegerField(default=0)
+    column = models.IntegerField(default=0)
+    table_id = models.UUIDField(default=uuid.uuid4)
+    description = models.TextField(null=True, blank=True)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+
     class Meta:
-        db_table = 'tools'
-        ordering = ['tool_code']
+        verbose_name = "Tool"
+        verbose_name_plural = "Tools"
         indexes = [
             models.Index(fields=['tool_type']),
             models.Index(fields=['status']),
-            models.Index(fields=['next_maintenance_date']),
         ]
-    
-    def save(self, *args, **kwargs):
-        # Calculate next maintenance date if needed
-        if self.last_maintenance_date and self.maintenance_interval_days:
-            self.next_maintenance_date = self.last_maintenance_date + timezone.timedelta(days=self.maintenance_interval_days)
-        super().save(*args, **kwargs)
-    
+
     def __str__(self):
-        return f"{self.tool_code} - {self.name} ({self.get_status_display()})"
+        return f"{self.stock_code} - {self.supplier_name}"
 
+class Holder(BaseModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    stock_code = models.CharField(max_length=50, unique=True, db_index=True, default='')
+    supplier_name = models.CharField(max_length=100, default='')
+    product_code = models.CharField(max_length=50, default='')
+    unit_price_tl = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    unit_price_euro = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    unit_price_usd = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    holder_type = models.CharField(max_length=50, default='')
+    pulley_type = models.CharField(max_length=50, default='')
+    water_cooling = models.BooleanField(default=False)
+    distance_cooling = models.BooleanField(default=False)
+    tool_connection_diameter = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
+    holder_type_enum = models.CharField(max_length=50, default='')
+    status = models.CharField(max_length=20, choices=ToolHolderStatus.choices, default=ToolHolderStatus.AVAILABLE)
+    row = models.IntegerField(default=0)
+    column = models.IntegerField(default=0)
+    table_id = models.UUIDField(default=uuid.uuid4)
+    description = models.TextField(null=True, blank=True)
 
-# New model for tool usage tracking
+    class Meta:
+        verbose_name = "Holder"
+        verbose_name_plural = "Holders"
+        indexes = [
+            models.Index(fields=['holder_type']),
+            models.Index(fields=['status']),
+        ]
+
+    def __str__(self):
+        return f"{self.stock_code} - {self.supplier_name}"
+
+class Fixture(BaseModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    code = models.CharField(max_length=50, unique=True, db_index=True, default='')
+    name = models.TextField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
+
+    class Meta:
+        verbose_name = "Fixture"
+        verbose_name_plural = "Fixtures"
+        indexes = [
+            models.Index(fields=['status']),
+        ]
+
+    def __str__(self):
+        return f"{self.code} - {self.name or 'No Name'}"
+
+class ControlGauge(BaseModel):
+    GAUGE_STATUS_CHOICES = [
+        ('UYGUN', 'Uygun'),
+        ('KULLANILMIYOR', 'Kullanılmıyor'),
+        ('HURDA', 'Hurda'),
+        ('KAYIP', 'Kayıp'),
+        ('BAKIMDA', 'Bakımda'),
+        ('KALIBRASYONDA', 'Kalibrasyonda'),
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    stock_code = models.CharField(max_length=50, unique=True, db_index=True, default='')
+    stock_name = models.CharField(max_length=100, default='')
+    stock_type = models.CharField(max_length=50, null=True, blank=True)
+    serial_number = models.CharField(max_length=100, null=True, blank=True)
+    brand = models.CharField(max_length=100, null=True, blank=True)
+    model = models.CharField(max_length=100, null=True, blank=True)
+    measuring_range = models.CharField(max_length=100, null=True, blank=True)
+    resolution = models.CharField(max_length=50, null=True, blank=True)
+    calibration_made_by = models.CharField(max_length=100, null=True, blank=True)
+    calibration_date = models.DateField(null=True, blank=True)
+    calibration_per_year = models.CharField(max_length=50, default='1 / Yıl')
+    upcoming_calibration_date = models.DateField(null=True, blank=True)
+    certificate_no = models.CharField(max_length=50, null=True, blank=True)
+    status = models.CharField(max_length=20, choices=GAUGE_STATUS_CHOICES, default='KULLANILMIYOR')
+    current_location = models.CharField(max_length=100, null=True, blank=True)
+    scrap_lost_date = models.DateField(null=True, blank=True)
+    description = models.TextField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Control Gauge"
+        verbose_name_plural = "Control Gauges"
+        indexes = [
+            models.Index(fields=['status']),
+            models.Index(fields=['upcoming_calibration_date']),
+        ]
+
+    def __str__(self):
+        return f"{self.stock_code} - {self.stock_name}"
+
+# Enums for ToolUsage conditions
+class ToolCondition(models.TextChoices):
+    NEW = 'NEW', 'New'
+    GOOD = 'GOOD', 'Good'
+    FAIR = 'FAIR', 'Fair'
+    POOR = 'POOR', 'Poor'
+    BROKEN = 'BROKEN', 'Broken'
+
 class ToolUsage(BaseModel):
-    tool = models.ForeignKey('Tool', on_delete=models.CASCADE, related_name='usages')
-    work_order = models.ForeignKey('manufacturing.WorkOrder', on_delete=models.CASCADE, related_name='tool_usages')
+    tool = models.ForeignKey(Tool, on_delete=models.CASCADE, related_name='usages')
+    # work_order = models.ForeignKey('manufacturing.WorkOrder', on_delete=models.CASCADE, related_name='tool_usages', null=True, blank=True) # Deferred for now
     issued_date = models.DateTimeField(default=timezone.now)
-    issued_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='issued_tools')
-    returned_date = models.DateTimeField(null=True, blank=True)
-    returned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name='received_tools')
+    returned_date = models.DateTimeField(blank=True, null=True)
+    issued_by = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name='issued_tool_usages', null=True, blank=True)
+    returned_to = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, related_name='received_tool_usages', null=True, blank=True)
     usage_count = models.IntegerField(default=1)
-    condition_before = models.CharField(max_length=50, choices=[
-        ('NEW', 'New'),
-        ('GOOD', 'Good'),
-        ('FAIR', 'Fair'),
-        ('POOR', 'Poor')
-    ], default='GOOD')
-    condition_after = models.CharField(max_length=50, choices=[
-        ('GOOD', 'Good'),
-        ('FAIR', 'Fair'),
-        ('POOR', 'Poor'),
-        ('BROKEN', 'Broken')
-    ], null=True, blank=True)
+    condition_before = models.CharField(max_length=50, choices=ToolCondition.choices, default=ToolCondition.GOOD)
+    condition_after = models.CharField(max_length=50, choices=ToolCondition.choices, blank=True, null=True)
     notes = models.TextField(blank=True, null=True)
-    
+
     class Meta:
         db_table = 'tool_usages'
         ordering = ['-issued_date']
         indexes = [
             models.Index(fields=['tool']),
-            models.Index(fields=['work_order']),
+            # models.Index(fields=['work_order']), # Deferred for now
             models.Index(fields=['issued_date']),
             models.Index(fields=['returned_date']),
+            models.Index(fields=['issued_by']),
+            models.Index(fields=['returned_to']),
         ]
-    
-    def save(self, *args, **kwargs):
-        # Track tool usage and set tool status
-        is_new = self.pk is None
-        
-        # Handle new tool usage
-        if is_new:
-            # Update tool status to IN_USE when issued
-            if self.tool.status in [ToolStatus.AVAILABLE]:
-                self.tool.status = ToolStatus.IN_USE
-                self.tool.save(update_fields=['status'])
-        
-        # Handle tool return
-        if not is_new and self.returned_date and not self._state.adding:
-            # Get the original instance
-            original = Tool.objects.get(pk=self.tool.pk)
-            
-            # Update tool usage count
-            self.tool.current_usage_count += self.usage_count
-            
-            # Set tool status based on condition after return
-            if self.condition_after == 'BROKEN':
-                self.tool.status = ToolStatus.BROKEN
-            else:
-                # Check if tool needs maintenance based on usage count
-                if (self.tool.max_usage_count and 
-                    self.tool.current_usage_count >= self.tool.max_usage_count):
-                    self.tool.status = ToolStatus.MAINTENANCE
-                else:
-                    self.tool.status = ToolStatus.AVAILABLE
-            
-            self.tool.save(update_fields=['status', 'current_usage_count'])
-        
-        super().save(*args, **kwargs)
-    
+
     def __str__(self):
-        return f"{self.tool.tool_code} - {self.work_order.work_order_number}"
+        return f"Usage of {self.tool.stock_code} on {self.issued_date.strftime('%Y-%m-%d')}"
