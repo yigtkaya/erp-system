@@ -2,6 +2,7 @@ from django.shortcuts import render
 from rest_framework import viewsets, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import (
     Product, RawMaterial, StockTransaction,
@@ -14,13 +15,25 @@ from .serializers import (
 from .stock_manager import StockManager
 
 
+# Custom Pagination Class
+class StandardResultsSetPagination(PageNumberPagination):
+    page_size = 25 # Default page size
+    page_size_query_param = 'page_size' # Client can override page_size
+    max_page_size = 100 # Maximum page size
+
+
 class ProductViewSet(viewsets.ModelViewSet):
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
+    pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['product_type', 'inventory_category', 'is_active']
+    filterset_fields = {
+        'product_type': ['exact'],
+        'inventory_category__name': ['exact'],
+        'is_active': ['exact']
+    }
     search_fields = ['product_code', 'product_name', 'description']
-    ordering_fields = ['product_code', 'product_name', 'current_stock', 'created_at']
+    ordering_fields = ['product_code', 'product_name', 'inventory_category__name', 'product_type', 'current_stock', 'created_at']
     
     @action(detail=True, methods=['get'])
     def stock_history(self, request, pk=None):
@@ -41,10 +54,15 @@ class ProductViewSet(viewsets.ModelViewSet):
 class RawMaterialViewSet(viewsets.ModelViewSet):
     queryset = RawMaterial.objects.all()
     serializer_class = RawMaterialSerializer
+    pagination_class = StandardResultsSetPagination
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['material_type', 'inventory_category', 'is_active']
+    filterset_fields = {
+        'material_type': ['exact'],
+        'inventory_category__name': ['exact'],
+        'is_active': ['exact']
+    }
     search_fields = ['material_code', 'material_name', 'description']
-    ordering_fields = ['material_code', 'material_name', 'current_stock', 'created_at']
+    ordering_fields = ['material_code', 'material_name', 'inventory_category__name', 'material_type', 'current_stock', 'created_at']
     
     @action(detail=True, methods=['get'])
     def stock_history(self, request, pk=None):

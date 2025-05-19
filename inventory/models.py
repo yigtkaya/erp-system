@@ -205,10 +205,10 @@ class Product(BaseModel):
         category_name = self.inventory_category.name
         
         valid_categories = {
-            ProductType.SINGLE: ['HAMMADDE', 'HURDA', 'KARANTINA'],
-            ProductType.SEMI: ['PROSES', 'MAMUL', 'KARANTINA', 'HURDA'],
+            ProductType.SINGLE: ['MAMUL', 'KARANTINA', 'HURDA'],
             ProductType.MONTAGED: ['MAMUL', 'KARANTINA', 'HURDA'],
-            ProductType.STANDARD_PART: ['HAMMADDE', 'HURDA', 'KARANTINA'],
+            ProductType.STANDARD_PART: ['HAMMADDE'],
+            ProductType.SEMI: ['PROSES', 'KARANTINA', 'HURDA'],
         }
         
         if self.product_type in valid_categories:
