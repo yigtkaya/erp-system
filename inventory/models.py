@@ -163,15 +163,15 @@ class Product(BaseModel):
     description = models.TextField(blank=True, null=True)
     current_stock = models.IntegerField(default=0)
     reserved_stock = models.IntegerField(default=0)
-    reorder_point = models.IntegerField(null=True, blank=True)
-    lead_time_days = models.IntegerField(null=True, blank=True)
     unit_of_measure = models.ForeignKey('UnitOfMeasure', on_delete=models.PROTECT)
     customer = models.ForeignKey(Customer, on_delete=models.PROTECT, null=True, blank=True)
     inventory_category = models.ForeignKey('InventoryCategory', on_delete=models.PROTECT)
-    weight = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
-    dimensions = models.JSONField(null=True, blank=True, help_text="Length, Width, Height in mm")
     is_active = models.BooleanField(default=True)
     tags = models.JSONField(null=True, blank=True, help_text="List of tags for searching")
+    
+    # Inventory management
+    reorder_point = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    lead_time_days = models.IntegerField(null=True, blank=True)
     
     class Meta:
         db_table = 'products'
@@ -189,12 +189,6 @@ class Product(BaseModel):
         if not re.match(r'^[A-Za-z0-9\-\.]+$', self.product_code):
             raise ValidationError({
                 'product_code': 'Product code can only contain letters, numbers, hyphens, and periods'
-            })
-        
-        # Validate product type and customer relationship
-        if self.product_type == ProductType.SINGLE and self.customer:
-            raise ValidationError({
-                'customer': "Single parts shouldn't be customer-specific"
             })
         
         # Validate inventory category based on product type

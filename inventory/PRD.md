@@ -10,7 +10,8 @@ The Inventory module manages all aspects of stock control, item tracking, and pr
 
 - **Product Catalog**: Central repository of all products with unique coding
 - **Product Categorization**: Classification by type (Montaged, Semi, Single, Standard Part) and inventory category
-- **Material Specifications**: Track material type, dimensions, weight, and other physical attributes
+- **Material Management**: Manage raw materials, components, and finished goods.
+- **Material Specifications**: Track material type, and other physical attributes
 - **Unit of Measure**: Flexible unit system for different product measurements
 
 ### Inventory Categorization
@@ -33,7 +34,7 @@ The Inventory module manages all aspects of stock control, item tracking, and pr
 
 ### Stock Management
 
-- **Stock Tracking**: Real-time tracking of current, reserved, and available stock
+- **Stock Tracking**: Real-time tracking of stock levels across multiple locations.
 - **Reorder Points**: Define minimum stock levels for reordering
 - **Lead Time Tracking**: Record and use lead times for planning
 

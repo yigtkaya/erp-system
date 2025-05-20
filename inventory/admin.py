@@ -40,7 +40,7 @@ class ProductAdmin(admin.ModelAdmin):
             'fields': ('current_stock', 'reserved_stock', 'available_stock', 'unit_of_measure', 'inventory_category')
         }),
         ('Details', {
-            'fields': ('weight', 'dimensions', 'customer')
+            'fields': ('customer',)
         }),
         ('Inventory Management', {
             'fields': ('reorder_point', 'lead_time_days', 'tags')
