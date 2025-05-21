@@ -154,8 +154,14 @@ class ToolUsageSerializer(serializers.ModelSerializer):
 class HolderSerializer(serializers.ModelSerializer):
     class Meta:
         model = Holder
-        fields = '__all__'
-        read_only_fields = ['created_at', 'modified_at']
+        fields = [
+            'id', 'stock_code', 'supplier_name', 'product_code', 'unit_price_tl',
+            'unit_price_euro', 'unit_price_usd', 'holder_type', 'pulley_type',
+            'water_cooling', 'distance_cooling', 'tool_connection_diameter',
+            'holder_type_enum', 'status', 'row', 'column', 'table_id',
+            'description', 'quantity', 'created_at', 'modified_at'
+        ]
+        read_only_fields = ['id', 'created_at', 'modified_at']
 
 class FixtureSerializer(serializers.ModelSerializer):
     class Meta:

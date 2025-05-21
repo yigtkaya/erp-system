@@ -485,9 +485,6 @@ class StockMovement(BaseModel):
         item_type = "Product" if self.product else "Material"
         return f"{item_type} {item_code} - {self.from_category.name} to {self.to_category.name}: {self.quantity}"
 
-
-
-
 # Enums for new models
 class ToolHolderStatus(models.TextChoices):
     AVAILABLE = 'AVAILABLE', 'Available'
@@ -558,6 +555,7 @@ class Holder(BaseModel):
     column = models.IntegerField(default=0)
     table_id = models.UUIDField(default=uuid.uuid4)
     description = models.TextField(null=True, blank=True)
+    quantity = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('0.00'))
 
     class Meta:
         verbose_name = "Holder"
