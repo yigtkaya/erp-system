@@ -7,13 +7,13 @@ from .models import (
 
 @admin.register(RawMaterial)
 class RawMaterialAdmin(admin.ModelAdmin):
-    list_display = ('material_code', 'material_name', 'material_type', 'current_stock', 'reserved_stock', 'available_stock', 'inventory_category')
+    list_display = ('stock_code', 'material_name', 'material_type', 'current_stock', 'reserved_stock', 'available_stock', 'inventory_category')
     list_filter = ('material_type', 'inventory_category', 'is_active')
-    search_fields = ('material_code', 'material_name', 'description')
+    search_fields = ('stock_code', 'material_name', 'description')
     readonly_fields = ('available_stock',)
     fieldsets = (
         (None, {
-            'fields': ('material_code', 'material_name', 'material_type', 'description', 'is_active')
+            'fields': ('stock_code', 'material_name', 'material_type', 'description', 'is_active')
         }),
         ('Stock Information', {
             'fields': ('current_stock', 'reserved_stock', 'available_stock', 'unit', 'inventory_category')
@@ -28,13 +28,13 @@ class RawMaterialAdmin(admin.ModelAdmin):
 
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
-    list_display = ('product_code', 'product_name', 'product_type', 'current_stock', 'reserved_stock', 'available_stock', 'inventory_category', 'customer', 'is_active')
+    list_display = ('stock_code', 'product_name', 'product_type', 'current_stock', 'reserved_stock', 'available_stock', 'inventory_category', 'customer', 'is_active')
     list_filter = ('product_type', 'inventory_category', 'is_active', 'customer')
-    search_fields = ('product_code', 'product_name', 'description', 'project_name')
+    search_fields = ('stock_code', 'product_name', 'description', 'project_name')
     readonly_fields = ('available_stock',)
     fieldsets = (
         (None, {
-            'fields': ('product_code', 'product_name', 'project_name', 'product_type', 'multicode', 'description', 'is_active')
+            'fields': ('stock_code', 'product_name', 'project_name', 'product_type', 'multicode', 'description', 'is_active')
         }),
         ('Stock Information', {
             'fields': ('current_stock', 'reserved_stock', 'available_stock', 'unit_of_measure', 'inventory_category')
@@ -61,14 +61,14 @@ class UnitOfMeasureAdmin(admin.ModelAdmin):
 @admin.register(ProductBOM)
 class ProductBOMAdmin(admin.ModelAdmin):
     list_display = ('parent_product', 'child_product', 'quantity', 'operation_sequence')
-    list_filter = ('parent_product__product_code', 'child_product__product_code')
-    search_fields = ('parent_product__product_code', 'child_product__product_code')
+    list_filter = ('parent_product__stock_code', 'child_product__stock_code')
+    search_fields = ('parent_product__stock_code', 'child_product__stock_code')
 
 @admin.register(TechnicalDrawing)
 class TechnicalDrawingAdmin(admin.ModelAdmin):
     list_display = ('drawing_code', 'product', 'version', 'effective_date', 'is_current', 'approved_by')
-    list_filter = ('product__product_code', 'is_current', 'effective_date')
-    search_fields = ('drawing_code', 'product__product_code', 'version')
+    list_filter = ('product__stock_code', 'is_current', 'effective_date')
+    search_fields = ('drawing_code', 'product__stock_code', 'version')
     actions = ['mark_as_current', 'mark_as_not_current']
 
     def mark_as_current(self, request, queryset):
@@ -83,14 +83,14 @@ class TechnicalDrawingAdmin(admin.ModelAdmin):
 class StockTransactionAdmin(admin.ModelAdmin):
     list_display = ('get_item_display', 'transaction_type', 'quantity', 'category', 'transaction_date', 'created_by', 'reference')
     list_filter = ('transaction_type', 'category', 'transaction_date', 'product', 'raw_material')
-    search_fields = ('product__product_code', 'raw_material__material_code', 'reference', 'notes')
+    search_fields = ('product__stock_code', 'raw_material__stock_code', 'reference', 'notes')
     readonly_fields = ('created_by',) # 'transaction_date' could also be here
 
     def get_item_display(self, obj):
         if obj.product:
-            return f"Product: {obj.product.product_code}"
+            return f"Product: {obj.product.stock_code}"
         elif obj.raw_material:
-            return f"Material: {obj.raw_material.material_code}"
+            return f"Material: {obj.raw_material.stock_code}"
         return "N/A"
     get_item_display.short_description = 'Item'
 
@@ -98,14 +98,14 @@ class StockTransactionAdmin(admin.ModelAdmin):
 class StockMovementAdmin(admin.ModelAdmin):
     list_display = ('get_item_display', 'from_category', 'to_category', 'quantity', 'movement_date', 'created_by')
     list_filter = ('from_category', 'to_category', 'movement_date', 'product', 'raw_material')
-    search_fields = ('product__product_code', 'raw_material__material_code', 'reference_id', 'notes')
+    search_fields = ('product__stock_code', 'raw_material__stock_code', 'reference_id', 'notes')
     readonly_fields = ('created_by',)
 
     def get_item_display(self, obj):
         if obj.product:
-            return f"Product: {obj.product.product_code}"
+            return f"Product: {obj.product.stock_code}"
         elif obj.raw_material:
-            return f"Material: {obj.raw_material.material_code}"
+            return f"Material: {obj.raw_material.stock_code}"
         return "N/A"
     get_item_display.short_description = 'Item'
 

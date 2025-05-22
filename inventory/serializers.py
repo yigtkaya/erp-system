@@ -71,7 +71,7 @@ class ProductSerializer(serializers.ModelSerializer):
         # ]
         read_only_fields = ['created_at', 'modified_at', 'available_stock']
         extra_kwargs = {
-            'product_code': {'min_length': 3},
+            'stock_code': {'min_length': 3},
             'reorder_point': {'min_value': 0}
         }
 
@@ -111,7 +111,7 @@ class RawMaterialSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ['created_at', 'modified_at', 'available_stock']
         extra_kwargs = {
-            'material_code': {'min_length': 3},
+            'stock_code': {'min_length': 3},
             'width': {'min_value': 0.01},
             'height': {'min_value': 0.01},
             'thickness': {'min_value': 0.01}

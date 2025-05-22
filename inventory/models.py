@@ -30,7 +30,7 @@ class MaterialType(models.TextChoices):
 
 
 class RawMaterial(BaseModel):
-    material_code = models.CharField(max_length=50, unique=True)
+    stock_code = models.CharField(max_length=50, unique=True)
     material_name = models.CharField(max_length=100)
     current_stock = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     reserved_stock = models.DecimalField(max_digits=10, decimal_places=2, default=0)
@@ -58,9 +58,9 @@ class RawMaterial(BaseModel):
         db_table = 'raw_materials'
         verbose_name = "Raw Material"
         verbose_name_plural = "Raw Materials"
-        ordering = ['material_code']
+        ordering = ['stock_code']
         indexes = [
-            models.Index(fields=['material_code']),
+            models.Index(fields=['stock_code']),
             models.Index(fields=['material_type']),
             models.Index(fields=['inventory_category']),
             models.Index(fields=['is_active']),
@@ -68,9 +68,9 @@ class RawMaterial(BaseModel):
 
     def clean(self):
         # Validate material code format
-        if not re.match(r'^[A-Za-z0-9\-\.]+$', self.material_code):
+        if not re.match(r'^[A-Za-z0-9\-\.]+$', self.stock_code):
             raise ValidationError({
-                'material_code': 'Material code can only contain letters, numbers, hyphens, and periods'
+                'stock_code': 'Material code can only contain letters, numbers, hyphens, and periods'
             })
             
         # Validate inventory category
@@ -90,7 +90,7 @@ class RawMaterial(BaseModel):
         return False
 
     def __str__(self):
-        return f"{self.material_code} - {self.material_name}"
+        return f"{self.stock_code} - {self.material_name}"
         
     def save(self, *args, **kwargs):
         self.clean()
@@ -155,7 +155,7 @@ class UnitOfMeasure(models.Model):
 
 
 class Product(BaseModel):
-    product_code = models.CharField(max_length=50, unique=True)
+    stock_code = models.CharField(max_length=50, unique=True)
     product_name = models.CharField(max_length=100)
     project_name = models.CharField(max_length=100, null=True, blank=True)
     product_type = models.CharField(max_length=20, choices=ProductType.choices)
@@ -175,9 +175,9 @@ class Product(BaseModel):
     
     class Meta:
         db_table = 'products'
-        ordering = ['product_code']
+        ordering = ['stock_code']
         indexes = [
-            models.Index(fields=['product_code']),
+            models.Index(fields=['stock_code']),
             models.Index(fields=['product_type']),
             models.Index(fields=['inventory_category']),
             models.Index(fields=['customer']),
@@ -186,9 +186,9 @@ class Product(BaseModel):
     
     def clean(self):
         # Validate product code format
-        if not re.match(r'^[A-Za-z0-9\-\.]+$', self.product_code):
+        if not re.match(r'^[A-Za-z0-9\-\.]+$', self.stock_code):
             raise ValidationError({
-                'product_code': 'Product code can only contain letters, numbers, hyphens, and periods'
+                'stock_code': 'Product code can only contain letters, numbers, hyphens, and periods'
             })
         
         # Validate inventory category based on product type
@@ -222,7 +222,7 @@ class Product(BaseModel):
         return False
     
     def __str__(self):
-        return f"{self.product_code} - {self.product_name}"
+        return f"{self.stock_code} - {self.product_name}"
     
     def save(self, *args, **kwargs):
         self.full_clean()
@@ -330,7 +330,7 @@ class ProductBOM(BaseModel):
     class Meta:
         db_table = 'product_bom'
         unique_together = ['parent_product', 'child_product']
-        ordering = ['operation_sequence', 'child_product__product_code']
+        ordering = ['operation_sequence', 'child_product__stock_code']
     
     def clean(self):
         if self.parent_product == self.child_product:
@@ -361,7 +361,7 @@ class ProductBOM(BaseModel):
         return check_parents(self.parent_product)
     
     def __str__(self):
-        return f"{self.parent_product.product_code} -> {self.child_product.product_code} ({self.quantity})"
+        return f"{self.parent_product.stock_code} -> {self.child_product.stock_code} ({self.quantity})"
 
 
 class ProductStock(BaseModel):
@@ -379,7 +379,7 @@ class ProductStock(BaseModel):
         ordering = ['product', 'category']
         
     def __str__(self):
-        return f"{self.product.product_code} - {self.category.name}: {self.quantity} {self.product.unit_of_measure}"
+        return f"{self.product.stock_code} - {self.category.name}: {self.quantity} {self.product.unit_of_measure}"
 
 
 class StockTransactionType(models.TextChoices):
@@ -443,7 +443,7 @@ class StockTransaction(BaseModel):
         super().save(*args, **kwargs)
     
     def __str__(self):
-        item_code = self.product.product_code if self.product else self.raw_material.material_code
+        item_code = self.product.stock_code if self.product else self.raw_material.stock_code
         item_type = "Product" if self.product else "Material"
         return f"{item_type} {item_code} - {self.get_transaction_type_display()} - {self.quantity}"
 
@@ -481,7 +481,7 @@ class StockMovement(BaseModel):
         super().save(*args, **kwargs)
     
     def __str__(self):
-        item_code = self.product.product_code if self.product else self.raw_material.material_code
+        item_code = self.product.stock_code if self.product else self.raw_material.stock_code
         item_type = "Product" if self.product else "Material"
         return f"{item_type} {item_code} - {self.from_category.name} to {self.to_category.name}: {self.quantity}"
 

@@ -32,8 +32,8 @@ class ProductViewSet(viewsets.ModelViewSet):
         'inventory_category__name': ['exact'],
         'is_active': ['exact']
     }
-    search_fields = ['product_code', 'product_name', 'description']
-    ordering_fields = ['product_code', 'product_name', 'inventory_category__name', 'product_type', 'current_stock', 'created_at']
+    search_fields = ['stock_code', 'product_name', 'description']
+    ordering_fields = ['stock_code', 'product_name', 'inventory_category__name', 'product_type', 'current_stock', 'created_at']
     
     @action(detail=True, methods=['get'])
     def stock_history(self, request, pk=None):
@@ -61,8 +61,8 @@ class RawMaterialViewSet(viewsets.ModelViewSet):
         'inventory_category__name': ['exact'],
         'is_active': ['exact']
     }
-    search_fields = ['material_code', 'material_name', 'description']
-    ordering_fields = ['material_code', 'material_name', 'inventory_category__name', 'material_type', 'current_stock', 'created_at']
+    search_fields = ['stock_code', 'material_name', 'description']
+    ordering_fields = ['stock_code', 'material_name', 'inventory_category__name', 'material_type', 'current_stock', 'created_at']
     
     @action(detail=True, methods=['get'])
     def stock_history(self, request, pk=None):

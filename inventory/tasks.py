@@ -52,7 +52,7 @@ def create_purchase_requisition(product_id):
                 requested_by=system_user,
                 required_date=timezone.now().date() + timedelta(days=7),
                 department_id=1,  # Default department
-                notes=f"Auto-generated for low stock: {product.product_code}",
+                notes=f"Auto-generated for low stock: {product.stock_code}",
                 status='SUBMITTED'
             )
             
@@ -67,7 +67,7 @@ def create_purchase_requisition(product_id):
                 notes="Auto-generated due to low stock"
             )
             
-            logger.info(f"Created purchase requisition for {product.product_code}")
+            logger.info(f"Created purchase requisition for {product.stock_code}")
     except Product.DoesNotExist:
         logger.error(f"Product {product_id} not found")
     except Exception as e:
