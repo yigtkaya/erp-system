@@ -18,7 +18,7 @@ API_VERSIONS = {
 }
 
 # Default API version
-DEFAULT_VERSION = 'v1'
+DEFAULT_VERSION = ''
 
 # API Documentation
 MODULE_DESCRIPTION = """

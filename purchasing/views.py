@@ -8,13 +8,13 @@ from django.utils import timezone
 from .models import (
     Supplier, PurchaseOrder, PurchaseOrderItem, PurchaseRequisition,
     PurchaseRequisitionItem, GoodsReceipt, GoodsReceiptItem,
-    SupplierPriceList
+    SupplierProductInfo
 )
 from .serializers import (
     SupplierSerializer, PurchaseOrderSerializer, PurchaseOrderItemSerializer,
     PurchaseRequisitionSerializer, PurchaseRequisitionItemSerializer,
     GoodsReceiptSerializer, GoodsReceiptItemSerializer,
-    SupplierPriceListSerializer
+    SupplierProductInfoSerializer
 )
 from core.permissions import HasRolePermission
 
@@ -103,9 +103,6 @@ class PurchaseOrderViewSet(viewsets.ModelViewSet):
                 item_serializer.is_valid(raise_exception=True)
                 item_serializer.save()
             
-            # Update PO totals
-            po.update_totals()
-            
             return Response(
                 self.get_serializer(po).data,
                 status=status.HTTP_201_CREATED
@@ -179,7 +176,7 @@ class PurchaseRequisitionViewSet(viewsets.ModelViewSet):
                     buyer=request.user,
                     shipping_address='Company Address',  # TODO: Get from settings
                     billing_address='Company Address',
-                    payment_terms=supplier.payment_terms or 'NET_30',
+                    notes=f"Created from requisition {requisition.requisition_number}",
                     created_by=request.user
                 )
                 
@@ -189,19 +186,19 @@ class PurchaseRequisitionViewSet(viewsets.ModelViewSet):
                         purchase_order=po,
                         product=req_item.product,
                         quantity_ordered=req_item.quantity,
-                        unit_price=req_item.estimated_price or 0,
-                        expected_delivery_date=requisition.required_date
+                        expected_delivery_date=requisition.required_date,
+                        notes=req_item.notes
                     )
                 
-                po.update_totals()
                 created_pos.append(po)
             
             requisition.status = 'CONVERTED'
             requisition.save()
-        
-        return Response({
-            'created_purchase_orders': [po.po_number for po in created_pos]
-        })
+            
+            return Response(
+                [PurchaseOrderSerializer(po).data for po in created_pos],
+                status=status.HTTP_201_CREATED
+            )
 
 
 class GoodsReceiptViewSet(viewsets.ModelViewSet):
@@ -220,37 +217,81 @@ class GoodsReceiptViewSet(viewsets.ModelViewSet):
     
     @action(detail=False, methods=['post'])
     def create_with_items(self, request):
-        """Create Goods Receipt with items in a single transaction"""
+        """Create goods receipt with items in a single transaction"""
         with transaction.atomic():
             items_data = request.data.pop('items', [])
             
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
-            gr = serializer.save(
+            receipt = serializer.save(
                 received_by=request.user,
                 created_by=request.user
             )
             
-            # Create GR items
+            # Create receipt items and update PO item quantities
             for item_data in items_data:
-                item_data['goods_receipt'] = gr.id
+                item_data['receipt'] = receipt.id
                 item_serializer = GoodsReceiptItemSerializer(data=item_data)
                 item_serializer.is_valid(raise_exception=True)
-                item_serializer.save()
+                receipt_item = item_serializer.save()
+                
+                # Update PO item received quantity
+                po_item = receipt_item.po_item
+                po_item.quantity_received += receipt_item.quantity_accepted
+                po_item.save()
+                
+                # Update inventory (integrate with inventory module)
+                # TODO: Add inventory movement record
             
-            # Update related PO and inventory
-            # TODO: Update PO delivery status and inventory levels
+            # Update PO status based on received quantities
+            po = receipt.purchase_order
+            all_received = all(item.is_fully_received for item in po.items.all())
+            any_received = any(item.quantity_received > 0 for item in po.items.all())
+            
+            if all_received:
+                po.status = 'RECEIVED'
+            elif any_received:
+                po.status = 'PARTIAL'
+            
+            po.save()
             
             return Response(
-                self.get_serializer(gr).data,
+                self.get_serializer(receipt).data,
                 status=status.HTTP_201_CREATED
             )
 
 
-class SupplierPriceListViewSet(viewsets.ModelViewSet):
-    queryset = SupplierPriceList.objects.all()
-    serializer_class = SupplierPriceListSerializer
+class SupplierProductInfoViewSet(viewsets.ModelViewSet):
+    """Manage supplier product information without pricing"""
+    queryset = SupplierProductInfo.objects.all()
+    serializer_class = SupplierProductInfoSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
     filterset_fields = ['supplier', 'product', 'is_active']
-    search_fields = ['supplier__name', 'product__product_code']
+    search_fields = ['supplier__name', 'product__product_code', 'supplier_product_code']
     ordering = ['supplier', 'product']
+    
+    @action(detail=False, methods=['get'])
+    def get_supplier_info(self, request):
+        """Get supplier information for a specific product"""
+        supplier_id = request.query_params.get('supplier_id')
+        product_id = request.query_params.get('product_id')
+        
+        if not supplier_id or not product_id:
+            return Response(
+                {'error': 'supplier_id and product_id are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            info = SupplierProductInfo.objects.get(
+                supplier_id=supplier_id,
+                product_id=product_id,
+                is_active=True
+            )
+            serializer = self.get_serializer(info)
+            return Response(serializer.data)
+        except SupplierProductInfo.DoesNotExist:
+            return Response(
+                {'error': 'No supplier information found'},
+                status=status.HTTP_404_NOT_FOUND
+            )

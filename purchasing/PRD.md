@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Purchasing module manages the complete procurement process from requisition to goods receipt. It handles supplier management, purchase orders, and inventory receiving, providing the necessary tools to efficiently procure materials and products.
+The Purchasing module manages the complete procurement process from requisition to goods receipt. It handles supplier management, purchase orders, and inventory receiving, providing the necessary tools to efficiently procure materials and products without financial complexity.
 
 ## Features
 
@@ -11,7 +11,7 @@ The Purchasing module manages the complete procurement process from requisition 
 - **Supplier Records**: Maintain supplier information with unique codes
 - **Supplier Evaluation**: Track supplier ratings and performance
 - **Contact Information**: Store multiple contact points and addresses
-- **Payment Terms**: Record supplier-specific payment conditions
+- **Lead Time Tracking**: Record supplier lead times for planning purposes
 
 ### Purchase Requisitions
 
@@ -24,7 +24,6 @@ The Purchasing module manages the complete procurement process from requisition 
 
 - **PO Generation**: Create purchase orders manually or from approved requisitions
 - **Order Status Tracking**: Monitor orders through their stages (Draft, Requested, Approved, Rejected, Sent, Partial, Received, Cancelled)
-- **Multi-Currency Support**: Handle different currencies with exchange rates
 - **Approval Process**: Require approval for orders above certain thresholds
 - **Documentation**: Associate POs with supplier references and notes
 
@@ -36,18 +35,12 @@ The Purchasing module manages the complete procurement process from requisition 
 - **Document Upload**: Store delivery notes and supporting documentation
 - **Storage Location**: Track where received items are stored
 
-### Pricing Management
+### Supplier Product Management
 
-- **Supplier Price Lists**: Track supplier-specific product pricing
-- **Price Validity Periods**: Time-based price agreements with start and end dates
-- **Volume Pricing**: Minimum quantity thresholds for special pricing
-- **Lead Time Tracking**: Record supplier lead times for planning purposes
-
-### Financial Tracking
-
-- **Total Calculations**: Automatic calculation of order totals and taxes
-- **Payment Terms**: Store and apply supplier payment conditions
-- **Tax Management**: Track tax amounts for accounting purposes
+- **Supplier Product Information**: Track supplier-specific product details
+- **Lead Time Management**: Record supplier lead times for planning purposes
+- **Minimum Order Quantities**: Track minimum quantities for each supplier-product combination
+- **Supplier Product Codes**: Maintain supplier's internal product codes
 
 ## Technical Requirements
 
@@ -60,21 +53,20 @@ The Purchasing module manages the complete procurement process from requisition 
 - `PurchaseRequisitionItem`: Line items for requisitions
 - `GoodsReceipt`: Record of goods received
 - `GoodsReceiptItem`: Line items for received goods
-- `SupplierPriceList`: Supplier-specific pricing agreements
+- `SupplierProductInfo`: Supplier-specific product information
 
 ### Business Logic
 
-- Automatic total calculations for purchase orders
-- Validation rules for dates, quantities, and pricing
-- Currency conversion handling
+- Validation rules for dates and quantities
 - Update of purchase order status based on goods receipts
+- Automatic requisition to purchase order conversion
+- Inventory integration for goods received
 
 ### Integration Points
 
 - Core module for user information and departments
 - Inventory module for product information and stock updates
 - Manufacturing module for material requirements
-- Financial module for invoice matching and payment processing
 
 ## Security Considerations
 
@@ -89,4 +81,17 @@ The Purchasing module manages the complete procurement process from requisition 
 - Electronic document exchange with suppliers
 - Contract management for long-term supplier agreements
 - Supplier portal for order confirmation and delivery updates
-- Three-way matching (PO, receipt, invoice) for payment approval
+- Advanced receiving workflows with quality control integration
+
+## Removed Features
+
+The following features have been removed to focus on procurement logistics:
+
+- Currency and exchange rate management
+- Pricing and cost tracking
+- Financial calculations and totals
+- Payment terms management
+- Tax calculations
+- Supplier price lists and pricing agreements
+
+The module now focuses purely on **procurement tracking and supplier management** without financial complexity.

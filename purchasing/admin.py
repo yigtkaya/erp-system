@@ -3,7 +3,7 @@ from django.contrib import admin
 from .models import (
     Supplier, PurchaseOrder, PurchaseOrderItem, PurchaseRequisition,
     PurchaseRequisitionItem, GoodsReceipt, GoodsReceiptItem,
-    SupplierPriceList
+    SupplierProductInfo
 )
 
 @admin.register(Supplier)
@@ -31,3 +31,9 @@ class GoodsReceiptAdmin(admin.ModelAdmin):
     list_display = ('receipt_number', 'purchase_order', 'receipt_date', 'received_by')
     search_fields = ('receipt_number', 'purchase_order__po_number')
     date_hierarchy = 'receipt_date'
+
+@admin.register(SupplierProductInfo)
+class SupplierProductInfoAdmin(admin.ModelAdmin):
+    list_display = ('supplier', 'product', 'lead_time_days', 'minimum_quantity', 'is_active')
+    list_filter = ('is_active', 'supplier')
+    search_fields = ('supplier__name', 'product__product_code', 'supplier_product_code')

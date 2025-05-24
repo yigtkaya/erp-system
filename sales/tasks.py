@@ -16,7 +16,6 @@ def process_overdue_orders():
     )
     
     for order in overdue_orders:
-        # Send notification
         notify_overdue_order.delay(order.id)
     
     logger.info(f"Processed {overdue_orders.count()} overdue orders")
@@ -28,11 +27,9 @@ def notify_overdue_order(order_id):
     try:
         order = SalesOrder.objects.get(id=order_id)
         
-        # Email customer and salesperson
         context = {
             'order': order,
             'delay_days': (timezone.now().date() - order.delivery_date).days,
-            'order_url': f"{settings.FRONTEND_URL}/orders/{order.id}",
         }
         
         EmailService.send_email(

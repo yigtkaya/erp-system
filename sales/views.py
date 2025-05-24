@@ -5,24 +5,12 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db import transaction
 from django.utils import timezone
-from .models import (
-    Currency, SalesOrder, SalesOrderItem, SalesQuotation,
-    SalesQuotationItem, CustomerPriceList
-)
+from .models import SalesOrder, SalesOrderItem, SalesQuotation, SalesQuotationItem
 from .serializers import (
-    CurrencySerializer, SalesOrderSerializer, SalesOrderItemSerializer,
-    SalesQuotationSerializer, SalesQuotationItemSerializer,
-    CustomerPriceListSerializer
+    SalesOrderSerializer, SalesOrderItemSerializer,
+    SalesQuotationSerializer, SalesQuotationItemSerializer
 )
 from core.permissions import HasRolePermission
-
-
-class CurrencyViewSet(viewsets.ModelViewSet):
-    queryset = Currency.objects.all()
-    serializer_class = CurrencySerializer
-    permission_classes = [IsAuthenticated, HasRolePermission]
-    filterset_fields = ['is_active']
-    search_fields = ['code', 'name']
 
 
 class SalesOrderViewSet(viewsets.ModelViewSet):
@@ -106,9 +94,6 @@ class SalesOrderViewSet(viewsets.ModelViewSet):
                 item_serializer.is_valid(raise_exception=True)
                 item_serializer.save()
             
-            # Update order totals
-            order.update_totals()
-            
             return Response(
                 self.get_serializer(order).data,
                 status=status.HTTP_201_CREATED
@@ -153,9 +138,6 @@ class SalesQuotationViewSet(viewsets.ModelViewSet):
                 order_date=timezone.now().date(),
                 delivery_date=timezone.now().date() + timezone.timedelta(days=30),
                 status='CONFIRMED',
-                currency=quotation.currency,
-                exchange_rate=quotation.exchange_rate,
-                payment_terms=quotation.payment_terms,
                 salesperson=request.user,
                 shipping_address=quotation.customer.address,
                 billing_address=quotation.customer.address,
@@ -169,14 +151,9 @@ class SalesQuotationViewSet(viewsets.ModelViewSet):
                     sales_order=order,
                     product=quote_item.product,
                     quantity=quote_item.quantity,
-                    unit_price=quote_item.unit_price,
-                    discount_percentage=quote_item.discount_percentage,
-                    tax_percentage=quote_item.tax_percentage,
-                    delivery_date=order.delivery_date
+                    delivery_date=order.delivery_date,
+                    notes=quote_item.notes
                 )
-            
-            # Update order totals
-            order.update_totals()
             
             # Link quotation to order
             quotation.converted_to_order = order
@@ -185,47 +162,4 @@ class SalesQuotationViewSet(viewsets.ModelViewSet):
             return Response(
                 SalesOrderSerializer(order).data,
                 status=status.HTTP_201_CREATED
-            )
-
-
-class CustomerPriceListViewSet(viewsets.ModelViewSet):
-    queryset = CustomerPriceList.objects.all()
-    serializer_class = CustomerPriceListSerializer
-    permission_classes = [IsAuthenticated, HasRolePermission]
-    filterset_fields = ['customer', 'product', 'is_active']
-    search_fields = ['customer__name', 'product__product_code']
-    ordering = ['customer', 'product']
-    
-    @action(detail=False, methods=['get'])
-    def get_price(self, request):
-        """Get price for a customer and product"""
-        customer_id = request.query_params.get('customer_id')
-        product_id = request.query_params.get('product_id')
-        quantity = request.query_params.get('quantity', 1)
-        
-        if not customer_id or not product_id:
-            return Response(
-                {'error': 'customer_id and product_id are required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        today = timezone.now().date()
-        price_list = CustomerPriceList.objects.filter(
-            customer_id=customer_id,
-            product_id=product_id,
-            is_active=True,
-            valid_from__lte=today
-        ).filter(
-            Q(valid_until__gte=today) | Q(valid_until__isnull=True)
-        ).filter(
-            minimum_quantity__lte=quantity
-        ).order_by('-minimum_quantity').first()
-        
-        if price_list:
-            serializer = self.get_serializer(price_list)
-            return Response(serializer.data)
-        else:
-            return Response(
-                {'error': 'No valid price found'},
-                status=status.HTTP_404_NOT_FOUND
             )

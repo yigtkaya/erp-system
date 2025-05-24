@@ -38,14 +38,14 @@ urlpatterns = [
     path('api/dashboard/', dashboard_overview, name='dashboard-overview'),
     
     # API routes
-    path('api/v1/', include('core.urls')),
-    path('api/v1/files/', include('common.urls')),
-    path('api/v1/inventory/', include('inventory.urls')),
-    path('api/v1/manufacturing/', include('manufacturing.urls')),
-    path('api/v1/sales/', include('sales.urls')),
-    path('api/v1/purchasing/', include('purchasing.urls')),
-    path('api/v1/quality/', include('quality.urls')),
-    path('api/v1/maintenance/', include('maintenance.urls')),
+    path('api/', include('core.urls')),
+    path('api/files/', include('common.urls')),
+    path('api/inventory/', include('inventory.urls')),
+    path('api/manufacturing/', include('manufacturing.urls')),
+    path('api/sales/', include('sales.urls')),
+    path('api/purchasing/', include('purchasing.urls')),
+    path('api/quality/', include('quality.urls')),
+    path('api/maintenance/', include('maintenance.urls')),
 ]
 
 if settings.DEBUG:

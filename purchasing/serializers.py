@@ -3,15 +3,11 @@ from rest_framework import serializers
 from .models import (
     Supplier, PurchaseOrder, PurchaseOrderItem, PurchaseRequisition,
     PurchaseRequisitionItem, GoodsReceipt, GoodsReceiptItem,
-    SupplierPriceList
+    SupplierProductInfo
 )
 from core.serializers import UserListSerializer
 from inventory.serializers import ProductSerializer
-from sales.serializers import CurrencySerializer
-from inventory.models import Product  # Import the Product model
-from sales.models import Currency  # Import the Currency model
-from inventory.models import Product  # Import the Product model
-from sales.models import Currency  # Import the Currency model
+from inventory.models import Product
 
 
 class SupplierSerializer(serializers.ModelSerializer):
@@ -19,7 +15,7 @@ class SupplierSerializer(serializers.ModelSerializer):
         model = Supplier
         fields = [
             'id', 'code', 'name', 'contact_person', 'email', 'phone',
-            'address', 'country', 'payment_terms', 'tax_id', 'is_active',
+            'address', 'country', 'tax_id', 'is_active',
             'rating', 'notes', 'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at']
@@ -32,19 +28,14 @@ class PurchaseOrderItemSerializer(serializers.ModelSerializer):
         source='product',
         write_only=True
     )
-    extended_price = serializers.ReadOnlyField()
-    tax_amount = serializers.ReadOnlyField()
-    total_price = serializers.ReadOnlyField()
     is_fully_received = serializers.ReadOnlyField()
     
     class Meta:
         model = PurchaseOrderItem
         fields = [
             'id', 'purchase_order', 'product', 'product_id',
-            'quantity_ordered', 'quantity_received', 'unit_price',
-            'tax_percentage', 'expected_delivery_date', 'notes',
-            'extended_price', 'tax_amount', 'total_price',
-            'is_fully_received'
+            'quantity_ordered', 'quantity_received', 'expected_delivery_date', 
+            'notes', 'is_fully_received'
         ]
 
 
@@ -55,26 +46,17 @@ class PurchaseOrderSerializer(serializers.ModelSerializer):
         source='supplier',
         write_only=True
     )
-    currency = CurrencySerializer(read_only=True)
-    currency_id = serializers.PrimaryKeyRelatedField(
-        queryset=Currency.objects.all(),
-        source='currency',
-        write_only=True
-    )
     buyer = UserListSerializer(read_only=True)
     approved_by = UserListSerializer(read_only=True)
     items = PurchaseOrderItemSerializer(many=True, read_only=True)
-    net_amount = serializers.ReadOnlyField()
     
     class Meta:
         model = PurchaseOrder
         fields = [
             'id', 'po_number', 'supplier', 'supplier_id', 'order_date',
-            'expected_delivery_date', 'status', 'currency', 'currency_id',
-            'exchange_rate', 'buyer', 'approved_by', 'approval_date',
-            'supplier_reference', 'shipping_address', 'billing_address',
-            'payment_terms', 'notes', 'total_amount', 'tax_amount',
-            'net_amount', 'items', 'created_at', 'updated_at'
+            'expected_delivery_date', 'status', 'buyer', 'approved_by', 
+            'approval_date', 'supplier_reference', 'shipping_address', 
+            'billing_address', 'notes', 'items', 'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at', 'buyer', 'approved_by', 'approval_date']
 
@@ -98,8 +80,7 @@ class PurchaseRequisitionItemSerializer(serializers.ModelSerializer):
         model = PurchaseRequisitionItem
         fields = [
             'id', 'requisition', 'product', 'product_id', 'quantity',
-            'estimated_price', 'preferred_supplier', 'preferred_supplier_id',
-            'notes'
+            'preferred_supplier', 'preferred_supplier_id', 'notes'
         ]
 
 
@@ -156,7 +137,8 @@ class GoodsReceiptSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'updated_at', 'received_by']
 
 
-class SupplierPriceListSerializer(serializers.ModelSerializer):
+class SupplierProductInfoSerializer(serializers.ModelSerializer):
+    """Serializer for supplier product information without pricing"""
     supplier = SupplierSerializer(read_only=True)
     supplier_id = serializers.PrimaryKeyRelatedField(
         queryset=Supplier.objects.all(),
@@ -169,19 +151,11 @@ class SupplierPriceListSerializer(serializers.ModelSerializer):
         source='product',
         write_only=True
     )
-    currency = CurrencySerializer(read_only=True)
-    currency_id = serializers.PrimaryKeyRelatedField(
-        queryset=Currency.objects.all(),
-        source='currency',
-        write_only=True
-    )
-    is_valid = serializers.ReadOnlyField()
     
     class Meta:
-        model = SupplierPriceList
+        model = SupplierProductInfo
         fields = [
             'id', 'supplier', 'supplier_id', 'product', 'product_id',
-            'unit_price', 'currency', 'currency_id', 'valid_from',
-            'valid_until', 'minimum_quantity', 'lead_time_days',
-            'is_active', 'notes', 'is_valid'
+            'supplier_product_code', 'minimum_quantity', 'lead_time_days',
+            'is_active', 'notes'
         ]
