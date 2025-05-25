@@ -8,6 +8,7 @@ app_name = 'sales'
 router = DefaultRouter()
 router.register(r'sales-orders', views.SalesOrderViewSet)
 router.register(r'sales-quotations', views.SalesQuotationViewSet)
+router.register(r'order-items', views.SalesOrderItemViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),

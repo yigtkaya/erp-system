@@ -14,12 +14,15 @@ class SalesOrderItemSerializer(serializers.ModelSerializer):
         source='product',
         write_only=True
     )
+    is_overdue = serializers.ReadOnlyField()
+    is_kapsam_overdue = serializers.ReadOnlyField()
     
     class Meta:
         model = SalesOrderItem
         fields = [
-            'id', 'sales_order', 'product', 'product_id', 'quantity',
-            'delivery_date', 'notes'
+            'id', 'sales_order', 'product', 'product_id', 'quantity', 'status',
+            'order_date', 'delivery_date', 'kapsam_deadline_date', 'notes',
+            'is_overdue', 'is_kapsam_overdue'
         ]
 
 
@@ -32,15 +35,24 @@ class SalesOrderSerializer(serializers.ModelSerializer):
     )
     salesperson = UserListSerializer(read_only=True)
     items = SalesOrderItemSerializer(many=True, read_only=True)
+    status = serializers.ReadOnlyField()
+    status_summary = serializers.ReadOnlyField()
     is_overdue = serializers.ReadOnlyField()
+    is_kapsam_overdue = serializers.ReadOnlyField()
+    earliest_delivery_date = serializers.ReadOnlyField()
+    earliest_kapsam_deadline = serializers.ReadOnlyField()
+    latest_kapsam_deadline = serializers.ReadOnlyField()
+    kapsam_status = serializers.ReadOnlyField()
     
     class Meta:
         model = SalesOrder
         fields = [
-            'id', 'order_number', 'customer', 'customer_id', 'order_date',
-            'delivery_date', 'status', 'customer_po_number',
+            'id', 'order_number', 'customer', 'customer_id',
+            'status', 'status_summary', 'customer_po_number',
             'salesperson', 'shipping_address', 'billing_address', 'notes',
-            'is_overdue', 'items', 'created_at', 'updated_at'
+            'is_overdue', 'is_kapsam_overdue', 'earliest_delivery_date', 
+            'earliest_kapsam_deadline', 'latest_kapsam_deadline', 'kapsam_status',
+            'items', 'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at', 'salesperson']
 
@@ -80,3 +92,31 @@ class SalesQuotationSerializer(serializers.ModelSerializer):
             'is_expired', 'items', 'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at', 'salesperson']
+
+
+class BatchUpdateSerializer(serializers.Serializer):
+    item_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
+    )
+    update_data = serializers.DictField()
+    
+    def validate_update_data(self, value):
+        allowed_fields = ['delivery_date', 'kapsam_deadline_date', 'notes', 'quantity']
+        invalid_fields = set(value.keys()) - set(allowed_fields)
+        
+        if invalid_fields:
+            raise serializers.ValidationError(
+                f"Invalid fields: {', '.join(invalid_fields)}. "
+                f"Allowed fields: {', '.join(allowed_fields)}"
+            )
+        
+        return value
+
+
+class BatchRescheduleSerializer(serializers.Serializer):
+    item_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        allow_empty=False
+    )
+    days_offset = serializers.IntegerField()
