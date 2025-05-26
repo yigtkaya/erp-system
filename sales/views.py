@@ -9,7 +9,9 @@ from django.db.models import Q, Min, Max
 from .models import SalesOrder, SalesOrderItem, SalesQuotation, SalesQuotationItem, OrderItemStatus
 from .serializers import (
     SalesOrderSerializer, SalesOrderItemSerializer,
-    SalesQuotationSerializer, SalesQuotationItemSerializer
+    SalesQuotationSerializer, SalesQuotationItemSerializer,
+    BatchDeleteSerializer, BatchUpdateSerializer, BatchAddItemSerializer,
+    BatchRescheduleSerializer, BatchStatusUpdateSerializer, BatchOperationResponseSerializer
 )
 from core.permissions import HasRolePermission
 from datetime import timedelta
@@ -181,6 +183,145 @@ class SalesOrderViewSet(viewsets.ModelViewSet):
         
         serializer = self.get_serializer(order)
         return Response(serializer.data)
+
+    @action(detail=True, methods=['post'])
+    def batch_update_items(self, request, pk=None):
+        """Batch update items within a specific sales order"""
+        order = self.get_object()
+        serializer = BatchUpdateSerializer(data=request.data)
+        
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        item_ids = serializer.validated_data['item_ids']
+        update_data = serializer.validated_data['update_data']
+        
+        with transaction.atomic():
+            # Only update items that belong to this order
+            items = order.items.filter(id__in=item_ids)
+            found_count = items.count()
+            
+            if found_count == 0:
+                return Response({
+                    'success': False,
+                    'message': 'No items found with provided IDs in this order',
+                    'affected_count': 0
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            updated_count = items.update(**update_data)
+            
+            return Response({
+                'success': True,
+                'message': f'Successfully updated {updated_count} items in order {order.order_number}',
+                'affected_count': updated_count,
+                'details': {
+                    'order_number': order.order_number,
+                    'updated_fields': list(update_data.keys()),
+                    'requested_items': len(item_ids),
+                    'found_items': found_count
+                }
+            })
+
+    @action(detail=True, methods=['post'])
+    def batch_delete_items(self, request, pk=None):
+        """Batch delete items within a specific sales order"""
+        order = self.get_object()
+        serializer = BatchDeleteSerializer(data=request.data)
+        
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        item_ids = serializer.validated_data['item_ids']
+        
+        with transaction.atomic():
+            # Only delete items that belong to this order
+            items = order.items.filter(id__in=item_ids)
+            found_count = items.count()
+            
+            if found_count == 0:
+                return Response({
+                    'success': False,
+                    'message': 'No items found with provided IDs in this order',
+                    'affected_count': 0
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Check for protected items
+            protected_items = items.filter(status__in=[OrderItemStatus.DELIVERED, OrderItemStatus.SHIPPED])
+            if protected_items.exists():
+                return Response({
+                    'success': False,
+                    'message': f'Cannot delete {protected_items.count()} items that are shipped or delivered',
+                    'affected_count': 0,
+                    'details': {
+                        'protected_items': list(protected_items.values_list('id', flat=True))
+                    }
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            deleted_count, _ = items.delete()
+            
+            return Response({
+                'success': True,
+                'message': f'Successfully deleted {deleted_count} items from order {order.order_number}',
+                'affected_count': deleted_count,
+                'details': {
+                    'order_number': order.order_number,
+                    'requested_items': len(item_ids),
+                    'found_items': found_count
+                }
+            })
+
+    @action(detail=True, methods=['post'])
+    def add_items(self, request, pk=None):
+        """Add multiple items to this specific sales order"""
+        order = self.get_object()
+        items_data = request.data.get('items', [])
+        
+        if not items_data:
+            return Response({
+                'success': False,
+                'message': 'items data required',
+                'affected_count': 0
+            }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Create a modified request data with the order ID
+        batch_data = {
+            'sales_order_id': order.id,
+            'items': items_data
+        }
+        
+        serializer = BatchAddItemSerializer(data=batch_data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        validated_items = serializer.validated_data['items']
+        
+        with transaction.atomic():
+            created_items = []
+            
+            for item_data in validated_items:
+                sales_order_item = SalesOrderItem.objects.create(
+                    sales_order=order,
+                    product_id=item_data['product_id'],
+                    quantity=item_data['quantity'],
+                    order_date=item_data['order_date'],
+                    delivery_date=item_data['delivery_date'],
+                    kapsam_deadline_date=item_data.get('kapsam_deadline_date'),
+                    notes=item_data.get('notes', ''),
+                    status=item_data['status']
+                )
+                created_items.append(sales_order_item)
+            
+            response_serializer = SalesOrderItemSerializer(created_items, many=True)
+            
+            return Response({
+                'success': True,
+                'message': f'Successfully added {len(created_items)} items to order {order.order_number}',
+                'affected_count': len(created_items),
+                'details': {
+                    'order_number': order.order_number,
+                    'created_items': response_serializer.data
+                }
+            }, status=status.HTTP_201_CREATED)
     
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
@@ -300,7 +441,7 @@ class SalesOrderItemViewSet(viewsets.ModelViewSet):
     serializer_class = SalesOrderItemSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
     filterset_fields = ['sales_order', 'product', 'order_date', 'delivery_date', 'status']
-    search_fields = ['sales_order__order_number', 'product__product_code']
+    search_fields = ['sales_order__order_number', 'product__stock_code']
     ordering_fields = ['order_date', 'delivery_date', 'created_at']
     ordering = ['order_date']
     
@@ -424,91 +565,169 @@ class SalesOrderItemViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['post'])
     def batch_update(self, request):
-        """Batch update multiple order items"""
-        item_ids = request.data.get('item_ids', [])
-        update_data = request.data.get('update_data', {})
+        """Enhanced batch update multiple order items"""
+        serializer = BatchUpdateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
-        if not item_ids:
-            return Response(
-                {'error': 'item_ids required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Validate update_data contains only allowed fields
-        allowed_fields = ['delivery_date', 'kapsam_deadline_date', 'notes', 'quantity', 'status']
-        update_fields = {k: v for k, v in update_data.items() if k in allowed_fields}
-        
-        if not update_fields:
-            return Response(
-                {'error': 'No valid update fields provided'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Validate status if provided
-        if 'status' in update_fields and update_fields['status'] not in OrderItemStatus.values:
-            return Response(
-                {'error': f'Invalid status. Options: {list(OrderItemStatus.values)}'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        item_ids = serializer.validated_data['item_ids']
+        update_data = serializer.validated_data['update_data']
         
         with transaction.atomic():
-            updated_count = self.queryset.filter(id__in=item_ids).update(**update_fields)
+            # Get items to update and validate they exist
+            items = self.queryset.filter(id__in=item_ids)
+            found_count = items.count()
             
-            return Response({
-                'message': f'Updated {updated_count} items',
-                'updated_fields': list(update_fields.keys())
-            })
+            if found_count == 0:
+                return Response({
+                    'success': False,
+                    'message': 'No items found with provided IDs',
+                    'affected_count': 0
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Perform update
+            updated_count = items.update(**update_data)
+            
+            # Prepare response data
+            response_data = {
+                'success': True,
+                'message': f'Successfully updated {updated_count} items',
+                'affected_count': updated_count,
+                'details': {
+                    'updated_fields': list(update_data.keys()),
+                    'requested_items': len(item_ids),
+                    'found_items': found_count
+                }
+            }
+            
+            if found_count != len(item_ids):
+                response_data['details']['missing_ids'] = list(
+                    set(item_ids) - set(items.values_list('id', flat=True))
+                )
+            
+            return Response(response_data)
     
     @action(detail=False, methods=['post'])
     def batch_delete(self, request):
-        """Batch delete multiple order items"""
-        item_ids = request.data.get('item_ids', [])
+        """Enhanced batch delete multiple order items with safety checks"""
+        serializer = BatchDeleteSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
-        if not item_ids:
-            return Response(
-                {'error': 'item_ids required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        item_ids = serializer.validated_data['item_ids']
         
         with transaction.atomic():
-            deleted_count, _ = self.queryset.filter(id__in=item_ids).delete()
+            # Get items to delete and validate they exist
+            items = self.queryset.filter(id__in=item_ids)
+            found_count = items.count()
             
-            return Response({
-                'message': f'Deleted {deleted_count} items'
-            })
+            if found_count == 0:
+                return Response({
+                    'success': False,
+                    'message': 'No items found with provided IDs',
+                    'affected_count': 0
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            # Check for items that shouldn't be deleted (e.g., delivered items)
+            protected_items = items.filter(status__in=[OrderItemStatus.DELIVERED, OrderItemStatus.SHIPPED])
+            if protected_items.exists():
+                protected_count = protected_items.count()
+                return Response({
+                    'success': False,
+                    'message': f'Cannot delete {protected_count} items that are shipped or delivered',
+                    'affected_count': 0,
+                    'details': {
+                        'protected_items': list(protected_items.values_list('id', flat=True)),
+                        'protected_statuses': [OrderItemStatus.DELIVERED, OrderItemStatus.SHIPPED]
+                    }
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Store item details for response before deletion
+            item_details = list(items.values('id', 'sales_order__order_number', 'product__stock_code'))
+            
+            # Perform deletion
+            deleted_count, _ = items.delete()
+            
+            response_data = {
+                'success': True,
+                'message': f'Successfully deleted {deleted_count} items',
+                'affected_count': deleted_count,
+                'details': {
+                    'requested_items': len(item_ids),
+                    'found_items': found_count,
+                    'deleted_items': item_details
+                }
+            }
+            
+            if found_count != len(item_ids):
+                response_data['details']['missing_ids'] = list(
+                    set(item_ids) - set([item['id'] for item in item_details])
+                )
+            
+            return Response(response_data)
     
     @action(detail=False, methods=['post'])
     def batch_reschedule(self, request):
-        """Batch reschedule delivery dates with offset"""
-        item_ids = request.data.get('item_ids', [])
-        days_offset = request.data.get('days_offset', 0)
+        """Enhanced batch reschedule delivery dates with offset"""
+        serializer = BatchRescheduleSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
         
-        if not item_ids:
-            return Response(
-                {'error': 'item_ids required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            days_offset = int(days_offset)
-        except (ValueError, TypeError):
-            return Response(
-                {'error': 'days_offset must be an integer'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        item_ids = serializer.validated_data['item_ids']
+        days_offset = serializer.validated_data['days_offset']
+        update_kapsam = serializer.validated_data['update_kapsam']
         
         with transaction.atomic():
             items = self.queryset.filter(id__in=item_ids)
+            found_count = items.count()
+            
+            if found_count == 0:
+                return Response({
+                    'success': False,
+                    'message': 'No items found with provided IDs',
+                    'affected_count': 0
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            rescheduled_items = []
             
             for item in items:
+                old_delivery_date = item.delivery_date
+                old_kapsam_date = item.kapsam_deadline_date
+                
                 item.delivery_date = item.delivery_date + timedelta(days=days_offset)
-                if item.kapsam_deadline_date:
+                
+                if update_kapsam and item.kapsam_deadline_date:
                     item.kapsam_deadline_date = item.kapsam_deadline_date + timedelta(days=days_offset)
+                
                 item.save()
+                
+                rescheduled_items.append({
+                    'id': item.id,
+                    'old_delivery_date': old_delivery_date.isoformat(),
+                    'new_delivery_date': item.delivery_date.isoformat(),
+                    'old_kapsam_date': old_kapsam_date.isoformat() if old_kapsam_date else None,
+                    'new_kapsam_date': item.kapsam_deadline_date.isoformat() if item.kapsam_deadline_date else None
+                })
             
-            return Response({
-                'message': f'Rescheduled {items.count()} items by {days_offset} days'
-            })
+            response_data = {
+                'success': True,
+                'message': f'Successfully rescheduled {found_count} items by {days_offset} days',
+                'affected_count': found_count,
+                'details': {
+                    'days_offset': days_offset,
+                    'update_kapsam': update_kapsam,
+                    'rescheduled_items': rescheduled_items,
+                    'requested_items': len(item_ids),
+                    'found_items': found_count
+                }
+            }
+            
+            if found_count != len(item_ids):
+                response_data['details']['missing_ids'] = list(
+                    set(item_ids) - set(items.values_list('id', flat=True))
+                )
+            
+            return Response(response_data)
     
     @action(detail=False, methods=['get'])
     def overdue_items(self, request):
@@ -522,8 +741,137 @@ class SalesOrderItemViewSet(viewsets.ModelViewSet):
         return Response(serializer.data)
     
     @action(detail=False, methods=['post'])
+    def batch_add_items(self, request):
+        """Add multiple items to a sales order in batch"""
+        serializer = BatchAddItemSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        sales_order_id = serializer.validated_data['sales_order_id']
+        items_data = serializer.validated_data['items']
+        
+        with transaction.atomic():
+            sales_order = SalesOrder.objects.get(id=sales_order_id)
+            created_items = []
+            
+            for item_data in items_data:
+                # Create the sales order item
+                sales_order_item = SalesOrderItem.objects.create(
+                    sales_order=sales_order,
+                    product_id=item_data['product_id'],
+                    quantity=item_data['quantity'],
+                    order_date=item_data['order_date'],
+                    delivery_date=item_data['delivery_date'],
+                    kapsam_deadline_date=item_data.get('kapsam_deadline_date'),
+                    notes=item_data.get('notes', ''),
+                    status=item_data['status']
+                )
+                created_items.append(sales_order_item)
+            
+            # Serialize the created items for response
+            response_serializer = SalesOrderItemSerializer(created_items, many=True)
+            
+            return Response({
+                'success': True,
+                'message': f'Successfully added {len(created_items)} items to order {sales_order.order_number}',
+                'affected_count': len(created_items),
+                'details': {
+                    'sales_order_id': sales_order_id,
+                    'sales_order_number': sales_order.order_number,
+                    'created_items': response_serializer.data
+                }
+            }, status=status.HTTP_201_CREATED)
+
+    @action(detail=False, methods=['post'])
+    def batch_status_update(self, request):
+        """Enhanced batch status update with validation"""
+        serializer = BatchStatusUpdateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        item_ids = serializer.validated_data['item_ids']
+        new_status = serializer.validated_data['new_status']
+        force_update = serializer.validated_data['force_update']
+        
+        # Define valid status transitions
+        valid_transitions = {
+            OrderItemStatus.DRAFT: [OrderItemStatus.CONFIRMED, OrderItemStatus.CANCELLED],
+            OrderItemStatus.CONFIRMED: [OrderItemStatus.IN_PRODUCTION, OrderItemStatus.CANCELLED],
+            OrderItemStatus.IN_PRODUCTION: [OrderItemStatus.READY, OrderItemStatus.CANCELLED],
+            OrderItemStatus.READY: [OrderItemStatus.SHIPPED, OrderItemStatus.CANCELLED],
+            OrderItemStatus.SHIPPED: [OrderItemStatus.DELIVERED],
+            OrderItemStatus.DELIVERED: [],  # Final status
+            OrderItemStatus.CANCELLED: [OrderItemStatus.DRAFT]  # Can reactivate cancelled items
+        }
+        
+        with transaction.atomic():
+            items = self.queryset.filter(id__in=item_ids)
+            found_count = items.count()
+            
+            if found_count == 0:
+                return Response({
+                    'success': False,
+                    'message': 'No items found with provided IDs',
+                    'affected_count': 0
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            updated_items = []
+            invalid_transitions = []
+            
+            for item in items:
+                old_status = item.status
+                
+                # Check if transition is valid
+                if not force_update:
+                    if new_status not in valid_transitions.get(old_status, []):
+                        invalid_transitions.append({
+                            'item_id': item.id,
+                            'current_status': old_status,
+                            'requested_status': new_status,
+                            'valid_transitions': valid_transitions.get(old_status, [])
+                        })
+                        continue
+                
+                # Update status
+                item.status = new_status
+                item.save()
+                
+                updated_items.append({
+                    'id': item.id,
+                    'old_status': old_status,
+                    'new_status': new_status,
+                    'product_code': item.product.stock_code,
+                    'sales_order': item.sales_order.order_number
+                })
+            
+            response_data = {
+                'success': len(updated_items) > 0,
+                'message': f'Successfully updated status for {len(updated_items)} items',
+                'affected_count': len(updated_items),
+                'details': {
+                    'new_status': new_status,
+                    'force_update': force_update,
+                    'updated_items': updated_items,
+                    'requested_items': len(item_ids),
+                    'found_items': found_count
+                }
+            }
+            
+            if invalid_transitions:
+                response_data['details']['invalid_transitions'] = invalid_transitions
+                if not force_update:
+                    response_data['message'] += f'. {len(invalid_transitions)} items had invalid status transitions.'
+            
+            if found_count != len(item_ids):
+                response_data['details']['missing_ids'] = list(
+                    set(item_ids) - set(items.values_list('id', flat=True))
+                )
+            
+            return Response(response_data)
+
+    @action(detail=False, methods=['post'])
     def create_bulk(self, request):
-        """Create multiple order items in bulk"""
+        """Create multiple order items in bulk (legacy method)"""
         items_data = request.data.get('items', [])
         
         if not items_data:
