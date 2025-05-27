@@ -2,7 +2,7 @@
 from django.contrib import admin
 from django.http import HttpResponse
 from django.utils import timezone
-from .models import SalesOrder, SalesOrderItem, SalesQuotation, SalesQuotationItem, OrderItemStatus
+from .models import SalesOrder, SalesOrderItem, SalesQuotation, SalesQuotationItem, OrderItemStatus, Shipping
 
 class SalesOrderItemInline(admin.TabularInline):
     model = SalesOrderItem
@@ -116,3 +116,24 @@ class SalesQuotationAdmin(admin.ModelAdmin):
     search_fields = ('quotation_number', 'customer__name')
     list_filter = ('status', 'quotation_date')
     date_hierarchy = 'quotation_date'
+
+@admin.register(Shipping)
+class ShippingAdmin(admin.ModelAdmin):
+    list_display = ('shipping_no', 'order', 'order_item', 'quantity', 'package_number', 'shipping_date')
+    search_fields = ('shipping_no', 'order__order_number', 'order_item__product__product_code')
+    list_filter = ('shipping_date', 'package_number')
+    date_hierarchy = 'shipping_date'
+    list_select_related = ['order', 'order_item', 'order_item__product']
+    
+    def get_form(self, request, obj=None, **kwargs):
+        form = super().get_form(request, obj, **kwargs)
+        if obj:
+            # Filter order_item choices to only show items from the selected order
+            form.base_fields['order_item'].queryset = SalesOrderItem.objects.filter(sales_order=obj.order)
+        return form
+    
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "order_item":
+            # This will be further filtered in get_form based on the selected order
+            kwargs["queryset"] = SalesOrderItem.objects.select_related('product')
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)

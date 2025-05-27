@@ -5,13 +5,14 @@ from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from django.db import transaction
 from django.utils import timezone
-from django.db.models import Q, Min, Max
-from .models import SalesOrder, SalesOrderItem, SalesQuotation, SalesQuotationItem, OrderItemStatus
+from django.db.models import Q, Min, Max, Sum
+from .models import SalesOrder, SalesOrderItem, SalesQuotation, SalesQuotationItem, OrderItemStatus, Shipping
 from .serializers import (
     SalesOrderSerializer, SalesOrderItemSerializer,
     SalesQuotationSerializer, SalesQuotationItemSerializer,
     BatchDeleteSerializer, BatchUpdateSerializer, BatchAddItemSerializer,
-    BatchRescheduleSerializer, BatchStatusUpdateSerializer, BatchOperationResponseSerializer
+    BatchRescheduleSerializer, BatchStatusUpdateSerializer, BatchOperationResponseSerializer,
+    ShippingSerializer, ShippingListSerializer
 )
 from core.permissions import HasRolePermission
 from datetime import timedelta
@@ -889,7 +890,199 @@ class SalesOrderItemViewSet(viewsets.ModelViewSet):
                 item = serializer.save()
                 created_items.append(item)
             
+            return Response({
+                'success': True,
+                'message': f'Created {len(created_items)} order items',
+                'created_count': len(created_items),
+                'created_items': [SalesOrderItemSerializer(item).data for item in created_items]
+            })
+
+
+class ShippingViewSet(viewsets.ModelViewSet):
+    queryset = Shipping.objects.all()
+    permission_classes = [IsAuthenticated, HasRolePermission]
+    filterset_fields = ['order', 'order_item', 'shipping_date', 'package_number']
+    search_fields = ['shipping_no', 'order__order_number', 'order_item__product__product_code']
+    ordering_fields = ['shipping_date', 'created_at']
+    ordering = ['-shipping_date']
+    
+    def get_serializer_class(self):
+        if self.action == 'list':
+            return ShippingListSerializer
+        return ShippingSerializer
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filter by date range
+        date_from = self.request.query_params.get('date_from')
+        date_to = self.request.query_params.get('date_to')
+        
+        if date_from:
+            queryset = queryset.filter(shipping_date__gte=date_from)
+        if date_to:
+            queryset = queryset.filter(shipping_date__lte=date_to)
+            
+        # Filter by customer
+        customer = self.request.query_params.get('customer')
+        if customer:
+            queryset = queryset.filter(order__customer=customer)
+            
+        return queryset.select_related(
+            'order', 'order_item', 'order_item__product', 'order__customer'
+        )
+    
+    @action(detail=False, methods=['get'])
+    def by_order(self, request):
+        """Get all shipments for a specific order"""
+        order_id = request.query_params.get('order_id')
+        if not order_id:
             return Response(
-                self.get_serializer(created_items, many=True).data,
-                status=status.HTTP_201_CREATED
+                {'error': 'order_id parameter is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
             )
+        
+        shipments = self.get_queryset().filter(order=order_id)
+        serializer = self.get_serializer(shipments, many=True)
+        return Response(serializer.data)
+    
+    @action(detail=False, methods=['get'])
+    def by_order_item(self, request):
+        """Get all shipments for a specific order item with remaining quantity"""
+        order_item_id = request.query_params.get('order_item_id')
+        if not order_item_id:
+            return Response(
+                {'error': 'order_item_id parameter is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            order_item = SalesOrderItem.objects.get(id=order_item_id)
+        except SalesOrderItem.DoesNotExist:
+            return Response(
+                {'error': 'Order item not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        shipments = self.get_queryset().filter(order_item=order_item_id)
+        total_shipped = shipments.aggregate(total=Sum('quantity'))['total'] or 0
+        remaining_quantity = order_item.quantity - total_shipped
+        
+        serializer = self.get_serializer(shipments, many=True)
+        return Response({
+            'shipments': serializer.data,
+            'order_item': {
+                'id': order_item.id,
+                'product_code': order_item.product.product_code,
+                'product_name': order_item.product.name,
+                'ordered_quantity': order_item.quantity,
+                'shipped_quantity': total_shipped,
+                'remaining_quantity': remaining_quantity,
+                'status': order_item.get_status_display()
+            }
+        })
+    
+    @action(detail=False, methods=['post'])
+    def create_shipment(self, request):
+        """Create a new shipment with validation"""
+        serializer = self.get_serializer(data=request.data)
+        
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        
+        with transaction.atomic():
+            shipment = serializer.save()
+            
+            # Update order item status to SHIPPED if fully shipped
+            order_item = shipment.order_item
+            total_shipped = Shipping.objects.filter(
+                order_item=order_item
+            ).aggregate(total=Sum('quantity'))['total'] or 0
+            
+            if total_shipped >= order_item.quantity:
+                order_item.status = OrderItemStatus.SHIPPED
+                order_item.save()
+        
+        return Response(
+            self.get_serializer(shipment).data, 
+            status=status.HTTP_201_CREATED
+        )
+    
+    @action(detail=False, methods=['get'])
+    def shipping_summary(self, request):
+        """Get shipping summary statistics"""
+        today = timezone.now().date()
+        
+        # Get shipments for different time periods
+        today_shipments = self.get_queryset().filter(shipping_date=today)
+        this_week_start = today - timedelta(days=today.weekday())
+        week_shipments = self.get_queryset().filter(
+            shipping_date__gte=this_week_start,
+            shipping_date__lte=today
+        )
+        month_shipments = self.get_queryset().filter(
+            shipping_date__year=today.year,
+            shipping_date__month=today.month
+        )
+        
+        return Response({
+            'today': {
+                'count': today_shipments.count(),
+                'total_quantity': today_shipments.aggregate(
+                    total=Sum('quantity')
+                )['total'] or 0,
+                'packages': today_shipments.aggregate(
+                    total=Sum('package_number')
+                )['total'] or 0
+            },
+            'this_week': {
+                'count': week_shipments.count(),
+                'total_quantity': week_shipments.aggregate(
+                    total=Sum('quantity')
+                )['total'] or 0,
+                'packages': week_shipments.aggregate(
+                    total=Sum('package_number')
+                )['total'] or 0
+            },
+            'this_month': {
+                'count': month_shipments.count(),
+                'total_quantity': month_shipments.aggregate(
+                    total=Sum('quantity')
+                )['total'] or 0,
+                'packages': month_shipments.aggregate(
+                    total=Sum('package_number')
+                )['total'] or 0
+            }
+        })
+    
+    @action(detail=False, methods=['get'])
+    def pending_shipments(self, request):
+        """Get order items that are ready for shipment but not fully shipped"""
+        ready_items = SalesOrderItem.objects.filter(
+            status=OrderItemStatus.READY
+        ).select_related('sales_order', 'product')
+        
+        pending_data = []
+        for item in ready_items:
+            shipped_quantity = Shipping.objects.filter(
+                order_item=item
+            ).aggregate(total=Sum('quantity'))['total'] or 0
+            
+            remaining_quantity = item.quantity - shipped_quantity
+            if remaining_quantity > 0:
+                pending_data.append({
+                    'order_item_id': item.id,
+                    'order_number': item.sales_order.order_number,
+                    'customer_name': item.sales_order.customer.name,
+                    'product_code': item.product.product_code,
+                    'product_name': item.product.name,
+                    'ordered_quantity': item.quantity,
+                    'shipped_quantity': shipped_quantity,
+                    'remaining_quantity': remaining_quantity,
+                    'delivery_date': item.delivery_date
+                })
+        
+        return Response({
+            'pending_shipments': pending_data,
+            'total_items': len(pending_data)
+        })

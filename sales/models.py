@@ -3,7 +3,9 @@ from django.db import models
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils import timezone
+from django.db.models import Sum
 from datetime import timedelta
+import uuid
 from core.models import BaseModel, Customer
 from inventory.models import Product
 
@@ -192,6 +194,27 @@ class SalesOrderItem(BaseModel):
             return False
         return timezone.now().date() > self.kapsam_deadline_date
     
+    @property
+    def shipped_quantity(self):
+        """Get total shipped quantity for this order item"""
+        return self.shipments.aggregate(total=Sum('quantity'))['total'] or 0
+    
+    @property
+    def remaining_quantity(self):
+        """Get remaining quantity to be shipped"""
+        return self.quantity - self.shipped_quantity
+    
+    @property
+    def is_fully_shipped(self):
+        """Check if this order item is fully shipped"""
+        return self.shipped_quantity >= self.quantity
+    
+    @property
+    def is_partially_shipped(self):
+        """Check if this order item is partially shipped"""
+        shipped = self.shipped_quantity
+        return 0 < shipped < self.quantity
+    
     def __str__(self):
         return f"{self.sales_order.order_number} - {self.product.product_code} (Qty: {self.quantity}) - {self.get_status_display()}"
 
@@ -244,3 +267,53 @@ class SalesQuotationItem(BaseModel):
     
     def __str__(self):
         return f"{self.quotation.quotation_number} - {self.product.product_code} (Qty: {self.quantity})"
+
+
+class Shipping(BaseModel):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    shipping_no = models.CharField(max_length=50)
+    shipping_date = models.DateField()
+    order = models.ForeignKey(SalesOrder, on_delete=models.CASCADE, related_name='shipments')
+    order_item = models.ForeignKey(SalesOrderItem, on_delete=models.CASCADE, related_name='shipments')
+    quantity = models.PositiveIntegerField()
+    package_number = models.PositiveIntegerField(default=1)
+    shipping_note = models.TextField(blank=True, null=True)
+
+    class Meta:
+        db_table = 'sales_shipments'
+        ordering = ['-shipping_date']
+        verbose_name = 'Shipping'
+        verbose_name_plural = 'Shippings'
+        unique_together = [['shipping_no', 'order', 'order_item']]
+        indexes = [
+            models.Index(fields=['shipping_no']),
+            models.Index(fields=['shipping_date']),
+            models.Index(fields=['order']),
+            models.Index(fields=['order_item']),
+        ]
+
+    def clean(self):
+        super().clean()
+        if self.quantity <= 0:
+            raise ValidationError({'quantity': 'Quantity must be positive'})
+        
+        # Calculate total shipped quantity for this order item
+        total_shipped = (
+            Shipping.objects
+            .filter(order_item=self.order_item)
+            .exclude(pk=self.pk)
+            .aggregate(total=Sum('quantity'))['total'] or 0
+        ) + self.quantity
+        
+        if total_shipped > self.order_item.quantity:
+            raise ValidationError({
+                'quantity': f'Total shipped quantity ({total_shipped}) exceeds ordered quantity ({self.order_item.quantity})'
+            })
+
+    def save(self, *args, **kwargs):
+        self.clean()
+        is_new = self._state.adding
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.shipping_no} - {self.order.order_number}"

@@ -1,6 +1,6 @@
 # sales/serializers.py
 from rest_framework import serializers
-from .models import SalesOrder, SalesOrderItem, SalesQuotation, SalesQuotationItem, OrderItemStatus
+from .models import SalesOrder, SalesOrderItem, SalesQuotation, SalesQuotationItem, OrderItemStatus, Shipping
 from core.serializers import CustomerSerializer, UserListSerializer
 from inventory.serializers import ProductSerializer
 from inventory.models import Product
@@ -18,13 +18,18 @@ class SalesOrderItemSerializer(serializers.ModelSerializer):
     )
     is_overdue = serializers.ReadOnlyField()
     is_kapsam_overdue = serializers.ReadOnlyField()
+    shipped_quantity = serializers.ReadOnlyField()
+    remaining_quantity = serializers.ReadOnlyField()
+    is_fully_shipped = serializers.ReadOnlyField()
+    is_partially_shipped = serializers.ReadOnlyField()
     
     class Meta:
         model = SalesOrderItem
         fields = [
             'id', 'sales_order', 'product', 'product_id', 'quantity', 'status',
             'order_date', 'delivery_date', 'kapsam_deadline_date', 'notes',
-            'is_overdue', 'is_kapsam_overdue'
+            'is_overdue', 'is_kapsam_overdue', 'shipped_quantity', 'remaining_quantity',
+            'is_fully_shipped', 'is_partially_shipped'
         ]
 
 
@@ -94,6 +99,88 @@ class SalesQuotationSerializer(serializers.ModelSerializer):
             'is_expired', 'items', 'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at', 'salesperson']
+
+
+class ShippingSerializer(serializers.ModelSerializer):
+    order_number = serializers.CharField(source='order.order_number', read_only=True)
+    order_item_details = serializers.SerializerMethodField()
+    remaining_quantity = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Shipping
+        fields = [
+            'id', 'shipping_no', 'shipping_date', 'order', 'order_number',
+            'order_item', 'order_item_details', 'quantity', 'remaining_quantity',
+            'package_number', 'shipping_note', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+    
+    def get_order_item_details(self, obj):
+        if obj.order_item:
+            return {
+                'product_code': obj.order_item.product.product_code,
+                'product_name': obj.order_item.product.name,
+                'ordered_quantity': obj.order_item.quantity,
+                'status': obj.order_item.get_status_display()
+            }
+        return None
+    
+    def get_remaining_quantity(self, obj):
+        if obj.order_item:
+            from django.db.models import Sum
+            total_shipped = Shipping.objects.filter(
+                order_item=obj.order_item
+            ).aggregate(total=Sum('quantity'))['total'] or 0
+            return obj.order_item.quantity - total_shipped
+        return 0
+    
+    def validate(self, data):
+        """Custom validation for shipping"""
+        # Ensure order and order_item are consistent
+        if data.get('order') and data.get('order_item'):
+            if data['order_item'].sales_order != data['order']:
+                raise serializers.ValidationError(
+                    "Order item must belong to the specified order"
+                )
+        
+        # Validate quantity doesn't exceed remaining quantity
+        if data.get('order_item') and data.get('quantity'):
+            from django.db.models import Sum
+            existing_shipped = Shipping.objects.filter(
+                order_item=data['order_item']
+            )
+            
+            # Exclude current instance if updating
+            if self.instance:
+                existing_shipped = existing_shipped.exclude(pk=self.instance.pk)
+            
+            total_shipped = existing_shipped.aggregate(
+                total=Sum('quantity')
+            )['total'] or 0
+            
+            remaining = data['order_item'].quantity - total_shipped
+            
+            if data['quantity'] > remaining:
+                raise serializers.ValidationError({
+                    'quantity': f'Cannot ship {data["quantity"]} units. Only {remaining} units remaining for this order item.'
+                })
+        
+        return data
+
+
+class ShippingListSerializer(serializers.ModelSerializer):
+    """Simplified serializer for listing shipments"""
+    order_number = serializers.CharField(source='order.order_number', read_only=True)
+    customer_name = serializers.CharField(source='order.customer.name', read_only=True)
+    product_code = serializers.CharField(source='order_item.product.product_code', read_only=True)
+    product_name = serializers.CharField(source='order_item.product.name', read_only=True)
+    
+    class Meta:
+        model = Shipping
+        fields = [
+            'id', 'shipping_no', 'shipping_date', 'order_number', 'customer_name',
+            'product_code', 'product_name', 'quantity', 'package_number'
+        ]
 
 
 # Enhanced Batch Operation Serializers
