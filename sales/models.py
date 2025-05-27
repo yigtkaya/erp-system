@@ -216,7 +216,7 @@ class SalesOrderItem(BaseModel):
         return 0 < shipped < self.quantity
     
     def __str__(self):
-        return f"{self.sales_order.order_number} - {self.product.product_code} (Qty: {self.quantity}) - {self.get_status_display()}"
+        return f"{self.sales_order.order_number} - {self.product.stock_code} (Qty: {self.quantity}) - {self.get_status_display()}"
 
 
 class SalesQuotation(BaseModel):
@@ -266,7 +266,7 @@ class SalesQuotationItem(BaseModel):
             raise ValidationError("Quantity must be positive")
     
     def __str__(self):
-        return f"{self.quotation.quotation_number} - {self.product.product_code} (Qty: {self.quantity})"
+        return f"{self.quotation.quotation_number} - {self.product.stock_code} (Qty: {self.quantity})"
 
 
 class Shipping(BaseModel):

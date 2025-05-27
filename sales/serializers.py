@@ -118,8 +118,8 @@ class ShippingSerializer(serializers.ModelSerializer):
     def get_order_item_details(self, obj):
         if obj.order_item:
             return {
-                'product_code': obj.order_item.product.product_code,
-                'product_name': obj.order_item.product.name,
+                'stock_code': obj.order_item.product.stock_code,
+                'product_name': obj.order_item.product.product_name,
                 'ordered_quantity': obj.order_item.quantity,
                 'status': obj.order_item.get_status_display()
             }
@@ -172,14 +172,14 @@ class ShippingListSerializer(serializers.ModelSerializer):
     """Simplified serializer for listing shipments"""
     order_number = serializers.CharField(source='order.order_number', read_only=True)
     customer_name = serializers.CharField(source='order.customer.name', read_only=True)
-    product_code = serializers.CharField(source='order_item.product.product_code', read_only=True)
-    product_name = serializers.CharField(source='order_item.product.name', read_only=True)
+    stock_code = serializers.CharField(source='order_item.product.stock_code', read_only=True)
+    product_name = serializers.CharField(source='order_item.product.product_name', read_only=True)
     
     class Meta:
         model = Shipping
         fields = [
             'id', 'shipping_no', 'shipping_date', 'order_number', 'customer_name',
-            'product_code', 'product_name', 'quantity', 'package_number'
+            'stock_code', 'product_name', 'quantity', 'package_number'
         ]
 
 

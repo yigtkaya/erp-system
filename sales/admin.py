@@ -84,7 +84,7 @@ def export_items_csv(modeladmin, request, queryset):
     for item in queryset:
         writer.writerow([
             item.sales_order.order_number,
-            item.product.product_code,
+            item.product.stock_code,
             item.quantity,
             item.get_status_display(),
             item.order_date,
@@ -98,7 +98,7 @@ export_items_csv.short_description = "Export to CSV"
 @admin.register(SalesOrderItem)
 class SalesOrderItemAdmin(admin.ModelAdmin):
     list_display = ('sales_order', 'product', 'quantity', 'status', 'order_date', 'delivery_date', 'kapsam_deadline_date', 'is_overdue', 'is_kapsam_overdue')
-    search_fields = ('sales_order__order_number', 'product__product_code', 'product__name')
+    search_fields = ('sales_order__order_number', 'product__stock_code', 'product__name')
     list_filter = ('status', 'order_date', 'delivery_date', 'kapsam_deadline_date')
     date_hierarchy = 'order_date'
     actions = [
@@ -120,7 +120,7 @@ class SalesQuotationAdmin(admin.ModelAdmin):
 @admin.register(Shipping)
 class ShippingAdmin(admin.ModelAdmin):
     list_display = ('shipping_no', 'order', 'order_item', 'quantity', 'package_number', 'shipping_date')
-    search_fields = ('shipping_no', 'order__order_number', 'order_item__product__product_code')
+    search_fields = ('shipping_no', 'order__order_number', 'order_item__product__stock_code')
     list_filter = ('shipping_date', 'package_number')
     date_hierarchy = 'shipping_date'
     list_select_related = ['order', 'order_item', 'order_item__product']

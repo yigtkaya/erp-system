@@ -841,7 +841,7 @@ class SalesOrderItemViewSet(viewsets.ModelViewSet):
                     'id': item.id,
                     'old_status': old_status,
                     'new_status': new_status,
-                    'product_code': item.product.stock_code,
+                    'stock_code': item.product.stock_code,
                     'sales_order': item.sales_order.order_number
                 })
             
@@ -902,7 +902,7 @@ class ShippingViewSet(viewsets.ModelViewSet):
     queryset = Shipping.objects.all()
     permission_classes = [IsAuthenticated, HasRolePermission]
     filterset_fields = ['order', 'order_item', 'shipping_date', 'package_number']
-    search_fields = ['shipping_no', 'order__order_number', 'order_item__product__product_code']
+    search_fields = ['shipping_no', 'order__order_number', 'order_item__product__stock_code']
     ordering_fields = ['shipping_date', 'created_at']
     ordering = ['-shipping_date']
     
@@ -973,8 +973,8 @@ class ShippingViewSet(viewsets.ModelViewSet):
             'shipments': serializer.data,
             'order_item': {
                 'id': order_item.id,
-                'product_code': order_item.product.product_code,
-                'product_name': order_item.product.name,
+                'stock_code': order_item.product.stock_code,
+                'product_name': order_item.product.product_name,
                 'ordered_quantity': order_item.quantity,
                 'shipped_quantity': total_shipped,
                 'remaining_quantity': remaining_quantity,
@@ -1074,8 +1074,8 @@ class ShippingViewSet(viewsets.ModelViewSet):
                     'order_item_id': item.id,
                     'order_number': item.sales_order.order_number,
                     'customer_name': item.sales_order.customer.name,
-                    'product_code': item.product.product_code,
-                    'product_name': item.product.name,
+                    'stock_code': item.product.stock_code,
+                    'product_name': item.product.product_name,
                     'ordered_quantity': item.quantity,
                     'shipped_quantity': shipped_quantity,
                     'remaining_quantity': remaining_quantity,
