@@ -8,14 +8,15 @@ from django.utils import timezone
 from .models import (
     ProductionLine, WorkCenter, WorkOrder, WorkOrderOperation,
     MaterialAllocation, ProductionOutput, MachineDowntime, ManufacturingProcess,
-    ProductWorkflow, ProcessConfig, Fixture, ControlGauge, SubWorkOrder
+    ProductWorkflow, ProcessConfig, Fixture, ControlGauge, SubWorkOrder, Machine
 )
 from .serializers import (
     ProductionLineSerializer, WorkCenterSerializer, WorkOrderSerializer,
     WorkOrderOperationSerializer, MaterialAllocationSerializer,
     ProductionOutputSerializer, MachineDowntimeSerializer, ManufacturingProcessSerializer,
     ProductWorkflowSerializer, ProcessConfigSerializer, FixtureSerializer, ControlGaugeSerializer,
-    SubWorkOrderSerializer
+    SubWorkOrderSerializer, MachineSerializer, MachineListSerializer,
+    MachineDetailSerializer
 )
 from core.permissions import HasRolePermission
 from django.db import models, transaction
@@ -1044,3 +1045,156 @@ class ManufacturingUtilityViewSet(viewsets.ViewSet):
                 'end_date': end_date
             }
         })
+
+
+class MachineViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing machines in the manufacturing system
+    """
+    queryset = Machine.objects.all()
+    serializer_class = MachineSerializer
+    filterset_fields = ['status', 'machine_type', 'work_center']
+    search_fields = ['machine_code', 'brand', 'model', 'serial_number']
+    ordering_fields = ['machine_code', 'status', 'machine_type', 'created_at']
+    ordering = ['machine_code']
+
+    def get_serializer_class(self):
+        """Return appropriate serializer based on action"""
+        if self.action == 'list':
+            return MachineListSerializer
+        elif self.action == 'retrieve':
+            return MachineDetailSerializer
+        return MachineSerializer
+
+    def get_queryset(self):
+        """Custom queryset with filtering options"""
+        queryset = Machine.objects.select_related('work_center', 'work_center__production_line')
+        
+        # Filter by maintenance status
+        maintenance_due = self.request.query_params.get('maintenance_due')
+        if maintenance_due == 'true':
+            queryset = queryset.filter(
+                next_maintenance_date__lt=timezone.now().date()
+            )
+        elif maintenance_due == 'false':
+            queryset = queryset.exclude(
+                next_maintenance_date__lt=timezone.now().date()
+            )
+        
+        # Filter by work center
+        work_center_id = self.request.query_params.get('work_center')
+        if work_center_id:
+            queryset = queryset.filter(work_center_id=work_center_id)
+        
+        return queryset
+
+    @action(detail=True, methods=['post'])
+    def update_status(self, request, pk=None):
+        """Update machine status"""
+        machine = self.get_object()
+        new_status = request.data.get('status')
+        
+        if new_status not in dict(Machine.MachineStatus.choices):
+            return Response(
+                {'error': 'Invalid status'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        old_status = machine.status
+        machine.status = new_status
+        machine.save()
+        
+        return Response({
+            'message': f'Machine status updated from {old_status} to {new_status}',
+            'machine': MachineSerializer(machine).data
+        })
+
+    @action(detail=True, methods=['post'])
+    def record_maintenance(self, request, pk=None):
+        """Record maintenance performed on machine"""
+        machine = self.get_object()
+        maintenance_date = request.data.get('maintenance_date')
+        notes = request.data.get('notes', '')
+        
+        if not maintenance_date:
+            return Response(
+                {'error': 'maintenance_date is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            from datetime import datetime
+            maintenance_date = datetime.strptime(maintenance_date, '%Y-%m-%d').date()
+        except ValueError:
+            return Response(
+                {'error': 'Invalid date format. Use YYYY-MM-DD'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        machine.last_maintenance_date = maintenance_date
+        machine.calculate_next_maintenance()
+        
+        if notes:
+            machine.maintenance_notes = notes
+        
+        machine.save()
+        
+        return Response({
+            'message': 'Maintenance recorded successfully',
+            'machine': MachineSerializer(machine).data
+        })
+
+    @action(detail=True, methods=['get'])
+    def maintenance_history(self, request, pk=None):
+        """Get maintenance history for this machine"""
+        machine = self.get_object()
+        
+        # This would integrate with the maintenance module
+        # For now, return basic maintenance info
+        maintenance_info = {
+            'machine_id': machine.id,
+            'machine_code': machine.machine_code,
+            'last_maintenance_date': machine.last_maintenance_date,
+            'next_maintenance_date': machine.next_maintenance_date,
+            'maintenance_interval': machine.maintenance_interval,
+            'is_overdue': machine.is_maintenance_overdue,
+            'maintenance_notes': machine.maintenance_notes
+        }
+        
+        return Response(maintenance_info)
+
+    @action(detail=True, methods=['get'])
+    def downtime_history(self, request, pk=None):
+        """Get downtime history for this machine's work center"""
+        machine = self.get_object()
+        
+        if not machine.work_center:
+            return Response({'downtime_records': []})
+        
+        downtime_records = MachineDowntime.objects.filter(
+            work_center=machine.work_center
+        ).order_by('-start_time')[:20]
+        
+        serializer = MachineDowntimeSerializer(downtime_records, many=True)
+        return Response({'downtime_records': serializer.data})
+
+    @action(detail=False, methods=['get'])
+    def statistics(self, request):
+        """Get machine statistics"""
+        from django.db.models import Count, Q
+        from django.utils import timezone
+        
+        queryset = self.get_queryset()
+        
+        stats = {
+            'total_machines': queryset.count(),
+            'by_status': dict(queryset.values_list('status').annotate(count=Count('id'))),
+            'by_type': dict(queryset.values_list('machine_type').annotate(count=Count('id'))),
+            'maintenance_overdue': queryset.filter(
+                next_maintenance_date__lt=timezone.now().date()
+            ).count(),
+            'available_machines': queryset.filter(status='AVAILABLE').count(),
+            'in_use_machines': queryset.filter(status='IN_USE').count(),
+        }
+        
+        return Response(stats)

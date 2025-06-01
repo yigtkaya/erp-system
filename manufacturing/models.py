@@ -5,6 +5,7 @@ from django.utils import timezone
 from core.models import BaseModel
 from inventory.models import Product, ProductBOM
 from common.models import FileVersionManager, ContentType
+from datetime import timedelta
 
 
 class WorkOrderStatus(models.TextChoices):
@@ -22,6 +23,25 @@ class WorkOrderPriority(models.TextChoices):
     MEDIUM = 'MEDIUM', 'Medium'
     HIGH = 'HIGH', 'High'
     URGENT = 'URGENT', 'Urgent'
+
+
+class MachineType(models.TextChoices):
+    CNC_MILLING = 'CNC_MILLING', 'CNC Milling'
+    CNC_LATHE = 'CNC_LATHE', 'CNC Lathe'
+    DRILLING = 'DRILLING', 'Drilling'
+    GRINDING = 'GRINDING', 'Grinding'
+    WELDING = 'WELDING', 'Welding'
+    ASSEMBLY = 'ASSEMBLY', 'Assembly'
+    INSPECTION = 'INSPECTION', 'Inspection'
+    OTHER = 'OTHER', 'Other'
+
+
+class MachineStatus(models.TextChoices):
+    AVAILABLE = 'AVAILABLE', 'Available'
+    IN_USE = 'IN_USE', 'In Use'
+    MAINTENANCE = 'MAINTENANCE', 'Under Maintenance'
+    BROKEN = 'BROKEN', 'Broken'
+    RETIRED = 'RETIRED', 'Retired'
 
 
 class ProductionLine(BaseModel):
@@ -54,6 +74,88 @@ class WorkCenter(BaseModel):
     
     def __str__(self):
         return f"{self.code} - {self.name}"
+
+
+class Machine(BaseModel):
+    machine_code = models.CharField(max_length=50, unique=True)
+    machine_type = models.CharField(max_length=50, choices=MachineType.choices)
+    brand = models.CharField(max_length=50, blank=True, null=True)
+    model = models.CharField(max_length=50, blank=True, null=True)
+    axis_count = models.CharField(
+        max_length=20,
+        choices=[
+            ('AXIS_2', '2-Axis'),
+            ('AXIS_3', '3-Axis'),
+            ('AXIS_4', '4-Axis'),
+            ('AXIS_5', '5-Axis'),
+            ('AXIS_6', '6-Axis'),
+            ('MULTI', 'Multi-Axis'),
+        ],
+        blank=True,
+        null=True
+    )
+    internal_cooling = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        help_text="Internal cooling pressure in bars",
+        null=True,
+        blank=True
+    )
+    motor_power_kva = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    holder_type = models.CharField(max_length=50, blank=True, null=True)
+    spindle_motor_power_10_percent_kw = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    spindle_motor_power_30_percent_kw = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    power_hp = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    spindle_speed_rpm = models.IntegerField(blank=True, null=True)
+    tool_count = models.IntegerField(blank=True, null=True)
+    nc_control_unit = models.CharField(max_length=50, blank=True, null=True)
+    manufacturing_year = models.DateField(null=True, blank=True)
+    serial_number = models.CharField(max_length=100, unique=True, blank=True, null=True)
+    machine_weight_kg = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    max_part_size = models.CharField(max_length=50, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+    status = models.CharField(max_length=20, choices=MachineStatus.choices, default=MachineStatus.AVAILABLE)
+    maintenance_interval = models.IntegerField(
+        help_text="Days between required maintenance",
+        default=90
+    )
+    last_maintenance_date = models.DateField(null=True, blank=True)
+    next_maintenance_date = models.DateField(null=True, blank=True)
+    maintenance_notes = models.TextField(blank=True, null=True)
+    work_center = models.ForeignKey(WorkCenter, on_delete=models.SET_NULL, null=True, blank=True, related_name='machines')
+
+    class Meta:
+        db_table = 'machines'
+        ordering = ['machine_code']
+        indexes = [
+            models.Index(fields=['machine_code']),
+            models.Index(fields=['status']),
+            models.Index(fields=['machine_type']),
+            models.Index(fields=['work_center']),
+            models.Index(fields=['next_maintenance_date']),
+        ]
+
+    def __str__(self):
+        return f"{self.machine_code} - {self.machine_type}"
+
+    def calculate_next_maintenance(self):
+        """Calculate and update the next maintenance date"""
+        if self.last_maintenance_date:
+            self.next_maintenance_date = self.last_maintenance_date + timedelta(days=self.maintenance_interval)
+            self.save(update_fields=['next_maintenance_date'])
+
+    def save(self, *args, **kwargs):
+        # Auto-calculate next maintenance date if last maintenance date is set
+        if self.last_maintenance_date and self.maintenance_interval:
+            self.next_maintenance_date = self.last_maintenance_date + timedelta(days=self.maintenance_interval)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_maintenance_overdue(self):
+        """Check if maintenance is overdue"""
+        if not self.next_maintenance_date:
+            return False
+        return timezone.now().date() > self.next_maintenance_date
 
 
 class WorkOrder(BaseModel):

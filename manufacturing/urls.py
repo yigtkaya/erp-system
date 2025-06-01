@@ -20,6 +20,7 @@ router.register(r'fixtures', views.FixtureViewSet, basename='fixture')
 router.register(r'control-gauges', views.ControlGaugeViewSet, basename='control-gauge')
 router.register(r'sub-work-orders', views.SubWorkOrderViewSet, basename='sub-work-order')
 router.register(r'utilities', views.ManufacturingUtilityViewSet, basename='manufacturing-utilities')
+router.register(r'machines', views.MachineViewSet)
 
 urlpatterns = [
     path('', include(router.urls)),

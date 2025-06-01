@@ -21,7 +21,7 @@ class EquipmentViewSet(viewsets.ModelViewSet):
     queryset = Equipment.objects.all()
     serializer_class = EquipmentSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
-    filterset_fields = ['work_center', 'is_active']
+    filterset_fields = ['work_center', 'status']
     search_fields = ['code', 'name', 'serial_number']
     ordering = ['code']
     
@@ -43,7 +43,7 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, HasRolePermission]
     filterset_fields = ['equipment', 'maintenance_type', 'priority', 'status']
     search_fields = ['work_order_number', 'equipment__name', 'description']
-    ordering = ['-scheduled_start']
+    ordering = ['-planned_start_date']
     
     def perform_create(self, serializer):
         serializer.save(
@@ -62,7 +62,7 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
             )
         
         work_order.status = 'IN_PROGRESS'
-        work_order.actual_start = timezone.now()
+        work_order.actual_start_date = timezone.now()
         work_order.save()
         
         serializer = self.get_serializer(work_order)
@@ -79,7 +79,7 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
             )
         
         # Check if all tasks are completed
-        incomplete_tasks = work_order.tasks.filter(is_completed=False)
+        incomplete_tasks = work_order.tasks.filter(status='PENDING')
         if incomplete_tasks.exists():
             return Response(
                 {'error': 'All tasks must be completed before completing work order'},
@@ -87,19 +87,18 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
             )
         
         work_order.status = 'COMPLETED'
-        work_order.actual_end = timezone.now()
-        work_order.actual_hours = sum(task.actual_hours or 0 for task in work_order.tasks.all())
+        work_order.actual_end_date = timezone.now()
         work_order.save()
         
         # Create maintenance log
         MaintenanceLog.objects.create(
             equipment=work_order.equipment,
             work_order=work_order,
-            log_type='MAINTENANCE',
+            maintenance_type=work_order.maintenance_type,
             description=work_order.description,
-            action_taken=f"Completed maintenance work order {work_order.work_order_number}",
-            logged_by=request.user,
-            downtime_hours=(work_order.actual_end - work_order.actual_start).total_seconds() / 3600
+            performed_by=request.user,
+            maintenance_date=timezone.now(),
+            hours_spent=(work_order.actual_end_date - work_order.actual_start_date).total_seconds() / 3600 if work_order.actual_start_date else 0
         )
         
         serializer = self.get_serializer(work_order)
@@ -110,24 +109,23 @@ class MaintenanceTaskViewSet(viewsets.ModelViewSet):
     queryset = MaintenanceTask.objects.all()
     serializer_class = MaintenanceTaskSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
-    filterset_fields = ['work_order', 'is_completed']
-    ordering = ['sequence_number']
+    filterset_fields = ['work_order', 'status']
+    ordering = ['id']
     
     @action(detail=True, methods=['post'])
     def complete(self, request, pk=None):
         task = self.get_object()
         
-        if task.is_completed:
+        if task.status == 'COMPLETED':
             return Response(
                 {'error': 'Task is already completed'},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        task.is_completed = True
-        task.completed_by = request.user
-        task.completed_at = timezone.now()
+        task.status = 'COMPLETED'
+        task.assigned_to = request.user
+        task.completion_date = timezone.now()
         task.actual_hours = request.data.get('actual_hours', task.estimated_hours)
-        task.notes = request.data.get('notes', task.notes)
         task.save()
         
         serializer = self.get_serializer(task)
@@ -138,12 +136,12 @@ class MaintenanceLogViewSet(viewsets.ModelViewSet):
     queryset = MaintenanceLog.objects.all()
     serializer_class = MaintenanceLogSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
-    filterset_fields = ['equipment', 'log_type', 'work_order']
-    search_fields = ['description', 'action_taken']
-    ordering = ['-log_date']
+    filterset_fields = ['equipment', 'maintenance_type', 'work_order']
+    search_fields = ['description']
+    ordering = ['-maintenance_date']
     
     def perform_create(self, serializer):
         serializer.save(
-            logged_by=self.request.user,
+            performed_by=self.request.user,
             created_by=self.request.user
         )

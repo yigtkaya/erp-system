@@ -4,7 +4,7 @@ from .models import (
     ProductionLine, WorkCenter, WorkOrder, WorkOrderOperation,
     MaterialAllocation, ProductionOutput, MachineDowntime,
     ManufacturingProcess, ProductWorkflow, ProcessConfig,
-    Fixture, ControlGauge, SubWorkOrder
+    Fixture, ControlGauge, SubWorkOrder, Machine
 )
 from inventory.serializers import ProductSerializer
 from core.serializers import UserListSerializer
@@ -242,4 +242,107 @@ class SubWorkOrderSerializer(serializers.ModelSerializer):
         fields = '__all__'
     
     def get_component_code(self, obj):
-        return obj.bom_component.child_product.product_code if obj.bom_component else None
+        return obj.bom_component.component.product_code if obj.bom_component else None
+
+
+class MachineSerializer(serializers.ModelSerializer):
+    work_center_display = WorkCenterSerializer(source='work_center', read_only=True)
+    is_maintenance_overdue = serializers.ReadOnlyField()
+    machine_type_display = serializers.CharField(source='get_machine_type_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    axis_count_display = serializers.CharField(source='get_axis_count_display', read_only=True)
+    
+    class Meta:
+        model = Machine
+        fields = [
+            'id', 'machine_code', 'machine_type', 'machine_type_display',
+            'brand', 'model', 'axis_count', 'axis_count_display',
+            'internal_cooling', 'motor_power_kva', 'holder_type',
+            'spindle_motor_power_10_percent_kw', 'spindle_motor_power_30_percent_kw',
+            'power_hp', 'spindle_speed_rpm', 'tool_count', 'nc_control_unit',
+            'manufacturing_year', 'serial_number', 'machine_weight_kg',
+            'max_part_size', 'description', 'status', 'status_display',
+            'maintenance_interval', 'last_maintenance_date', 'next_maintenance_date',
+            'maintenance_notes', 'work_center', 'work_center_display',
+            'is_maintenance_overdue', 'created_at', 'updated_at'
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+
+    def validate_serial_number(self, value):
+        """Ensure serial number is unique if provided"""
+        if value:
+            machine_id = self.instance.id if self.instance else None
+            if Machine.objects.filter(serial_number=value).exclude(id=machine_id).exists():
+                raise serializers.ValidationError("A machine with this serial number already exists.")
+        return value
+
+    def validate(self, data):
+        """Additional validation for machine data"""
+        # Validate manufacturing year is not in the future
+        if data.get('manufacturing_year'):
+            from django.utils import timezone
+            if data['manufacturing_year'] > timezone.now().date():
+                raise serializers.ValidationError({
+                    'manufacturing_year': 'Manufacturing year cannot be in the future.'
+                })
+        
+        # Validate maintenance interval is positive
+        if data.get('maintenance_interval', 0) <= 0:
+            raise serializers.ValidationError({
+                'maintenance_interval': 'Maintenance interval must be a positive number.'
+            })
+        
+        return data
+
+
+class MachineListSerializer(serializers.ModelSerializer):
+    """Simplified serializer for listing machines"""
+    work_center_name = serializers.CharField(source='work_center.name', read_only=True)
+    is_maintenance_overdue = serializers.ReadOnlyField()
+    machine_type_display = serializers.CharField(source='get_machine_type_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    
+    class Meta:
+        model = Machine
+        fields = [
+            'id', 'machine_code', 'machine_type', 'machine_type_display',
+            'brand', 'model', 'status', 'status_display', 'work_center_name',
+            'last_maintenance_date', 'next_maintenance_date',
+            'is_maintenance_overdue', 'created_at'
+        ]
+
+
+class MachineDetailSerializer(serializers.ModelSerializer):
+    """Detailed serializer for machine details with related data"""
+    work_center_display = WorkCenterSerializer(source='work_center', read_only=True)
+    downtime_history = serializers.SerializerMethodField()
+    is_maintenance_overdue = serializers.ReadOnlyField()
+    axis_count_display = serializers.CharField(source='get_axis_count_display', read_only=True)
+    machine_type_display = serializers.CharField(source='get_machine_type_display', read_only=True)
+    status_display = serializers.CharField(source='get_status_display', read_only=True)
+    
+    class Meta:
+        model = Machine
+        fields = [
+            'id', 'machine_code', 'machine_type', 'machine_type_display',
+            'brand', 'model', 'axis_count', 'axis_count_display',
+            'internal_cooling', 'motor_power_kva', 'holder_type',
+            'spindle_motor_power_10_percent_kw', 'spindle_motor_power_30_percent_kw',
+            'power_hp', 'spindle_speed_rpm', 'tool_count', 'nc_control_unit',
+            'manufacturing_year', 'serial_number', 'machine_weight_kg',
+            'max_part_size', 'description', 'status', 'status_display',
+            'maintenance_interval', 'last_maintenance_date', 'next_maintenance_date',
+            'maintenance_notes', 'work_center', 'work_center_display',
+            'is_maintenance_overdue', 'downtime_history',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+
+    def get_downtime_history(self, obj):
+        """Get recent downtime history for this machine's work center"""
+        if obj.work_center:
+            downtime_records = MachineDowntime.objects.filter(
+                work_center=obj.work_center
+            ).order_by('-start_time')[:10]
+            return MachineDowntimeSerializer(downtime_records, many=True).data
+        return []

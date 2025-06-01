@@ -4,7 +4,7 @@ from .models import (
     ProductionLine, WorkCenter, WorkOrder, WorkOrderOperation,
     MaterialAllocation, ProductionOutput, MachineDowntime,
     ManufacturingProcess, ProductWorkflow, ProcessConfig,
-    Fixture, ControlGauge, SubWorkOrder
+    Fixture, ControlGauge, SubWorkOrder, Machine
 )
 
 @admin.register(ProductionLine)
@@ -98,3 +98,57 @@ class SubWorkOrderAdmin(admin.ModelAdmin):
     search_fields = ('work_order_number', 'parent_work_order__work_order_number')
     list_filter = ('status', 'target_category')
     date_hierarchy = 'planned_start'
+
+@admin.register(Machine)
+class MachineAdmin(admin.ModelAdmin):
+    list_display = [
+        'machine_code', 'machine_type', 'brand', 'model', 'status',
+        'work_center', 'last_maintenance_date', 'next_maintenance_date',
+        'is_maintenance_overdue'
+    ]
+    list_filter = [
+        'status', 'machine_type', 'work_center', 'axis_count',
+        'last_maintenance_date', 'next_maintenance_date'
+    ]
+    search_fields = [
+        'machine_code', 'brand', 'model', 'serial_number',
+        'work_center__name', 'work_center__code'
+    ]
+    readonly_fields = ['created_at', 'updated_at', 'is_maintenance_overdue']
+    
+    fieldsets = (
+        ('Basic Information', {
+            'fields': (
+                'machine_code', 'machine_type', 'brand', 'model',
+                'serial_number', 'manufacturing_year', 'description'
+            )
+        }),
+        ('Technical Specifications', {
+            'fields': (
+                'axis_count', 'internal_cooling', 'motor_power_kva',
+                'holder_type', 'spindle_motor_power_10_percent_kw',
+                'spindle_motor_power_30_percent_kw', 'power_hp',
+                'spindle_speed_rpm', 'tool_count', 'nc_control_unit',
+                'machine_weight_kg', 'max_part_size'
+            ),
+            'classes': ('collapse',)
+        }),
+        ('Status & Location', {
+            'fields': ('status', 'work_center')
+        }),
+        ('Maintenance', {
+            'fields': (
+                'maintenance_interval', 'last_maintenance_date',
+                'next_maintenance_date', 'maintenance_notes'
+            )
+        }),
+        ('System Information', {
+            'fields': ('created_at', 'updated_at', 'is_maintenance_overdue'),
+            'classes': ('collapse',)
+        })
+    )
+    
+    def is_maintenance_overdue(self, obj):
+        return obj.is_maintenance_overdue
+    is_maintenance_overdue.boolean = True
+    is_maintenance_overdue.short_description = 'Maintenance Overdue'
