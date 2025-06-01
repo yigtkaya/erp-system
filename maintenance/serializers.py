@@ -5,29 +5,18 @@ from .models import (
     MaintenanceLog
 )
 from core.serializers import UserListSerializer
-from manufacturing.serializers import WorkCenterSerializer
-from purchasing.serializers import SupplierSerializer
-
-# Imports to be added
-from manufacturing.models import WorkCenter
-from core.models import User # Assuming User is from core.models as per models.py
+from core.models import User
 
 
 class EquipmentSerializer(serializers.ModelSerializer):
-    work_center_display = WorkCenterSerializer(source='work_center', read_only=True)
-    work_center_id = serializers.PrimaryKeyRelatedField(
-        queryset=WorkCenter.objects.all(),
-        source='work_center',
-        write_only=True,
-        required=False
-    )
+    
     
     class Meta:
         model = Equipment
         fields = [
             'id', 'code', 'name', 'description', 'model', 'serial_number',
             'manufacturer', 'purchase_date', 'warranty_end_date', 'status',
-            'location', 'work_center', 'work_center_id', 'work_center_display',
+            'location',
             'parent_equipment', 'maintenance_interval_days', 'last_maintenance_date',
             'next_maintenance_date', 'created_at', 'updated_at'
         ]
@@ -89,6 +78,6 @@ class MaintenanceLogSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'equipment', 'equipment_id', 'equipment_display', 'work_order', 'work_order_display',
             'maintenance_type', 'maintenance_date', 'performed_by', 'performed_by_display',
-            'description', 'hours_spent', 'cost', 'created_at', 'updated_at'
+            'description', 'hours_spent', 'cost', 'notes', 'created_at', 'updated_at'
         ]
         read_only_fields = ['performed_by']

@@ -44,38 +44,6 @@ class MachineStatus(models.TextChoices):
     RETIRED = 'RETIRED', 'Retired'
 
 
-class ProductionLine(BaseModel):
-    code = models.CharField(max_length=50, unique=True)
-    name = models.CharField(max_length=100)
-    description = models.TextField(blank=True, null=True)
-    is_active = models.BooleanField(default=True)
-    capacity_per_hour = models.IntegerField(help_text="Units per hour")
-    
-    class Meta:
-        db_table = 'production_lines'
-        ordering = ['code']
-    
-    def __str__(self):
-        return f"{self.code} - {self.name}"
-
-
-class WorkCenter(BaseModel):
-    code = models.CharField(max_length=50, unique=True)
-    name = models.CharField(max_length=100)
-    description = models.TextField(blank=True, null=True)
-    production_line = models.ForeignKey(ProductionLine, on_delete=models.CASCADE, related_name='work_centers')
-    capacity_per_hour = models.IntegerField(help_text="Units per hour")
-    setup_time_minutes = models.IntegerField(default=0)
-    is_active = models.BooleanField(default=True)
-    
-    class Meta:
-        db_table = 'work_centers'
-        ordering = ['code']
-    
-    def __str__(self):
-        return f"{self.code} - {self.name}"
-
-
 class Machine(BaseModel):
     machine_code = models.CharField(max_length=50, unique=True)
     machine_type = models.CharField(max_length=50, choices=MachineType.choices)
@@ -122,7 +90,7 @@ class Machine(BaseModel):
     last_maintenance_date = models.DateField(null=True, blank=True)
     next_maintenance_date = models.DateField(null=True, blank=True)
     maintenance_notes = models.TextField(blank=True, null=True)
-    work_center = models.ForeignKey(WorkCenter, on_delete=models.SET_NULL, null=True, blank=True, related_name='machines')
+    is_active = models.BooleanField(default=True)
 
     class Meta:
         db_table = 'machines'
@@ -131,7 +99,6 @@ class Machine(BaseModel):
             models.Index(fields=['machine_code']),
             models.Index(fields=['status']),
             models.Index(fields=['machine_type']),
-            models.Index(fields=['work_center']),
             models.Index(fields=['next_maintenance_date']),
         ]
 
@@ -170,7 +137,7 @@ class WorkOrder(BaseModel):
     actual_end_date = models.DateTimeField(null=True, blank=True)
     status = models.CharField(max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
     priority = models.CharField(max_length=10, choices=WorkOrderPriority.choices, default=WorkOrderPriority.MEDIUM)
-    work_center = models.ForeignKey(WorkCenter, on_delete=models.PROTECT, related_name='work_orders')
+    primary_machine = models.ForeignKey(Machine, on_delete=models.SET_NULL, null=True, blank=True, related_name='primary_work_orders')
     sales_order = models.ForeignKey('sales.SalesOrder', on_delete=models.SET_NULL, null=True, blank=True, related_name='work_orders')
     notes = models.TextField(blank=True, null=True)
     
@@ -181,6 +148,7 @@ class WorkOrder(BaseModel):
             models.Index(fields=['work_order_number']),
             models.Index(fields=['status']),
             models.Index(fields=['planned_start_date']),
+            models.Index(fields=['primary_machine']),
         ]
     
     def clean(self):
@@ -210,7 +178,7 @@ class WorkOrderOperation(BaseModel):
     work_order = models.ForeignKey(WorkOrder, on_delete=models.CASCADE, related_name='operations')
     operation_sequence = models.IntegerField()
     operation_name = models.CharField(max_length=100)
-    work_center = models.ForeignKey(WorkCenter, on_delete=models.PROTECT)
+    machine = models.ForeignKey(Machine, on_delete=models.PROTECT, related_name='operations', null=True, blank=True)
     planned_start_date = models.DateTimeField()
     planned_end_date = models.DateTimeField()
     actual_start_date = models.DateTimeField(null=True, blank=True)
@@ -227,6 +195,14 @@ class WorkOrderOperation(BaseModel):
         db_table = 'work_order_operations'
         unique_together = ['work_order', 'operation_sequence']
         ordering = ['operation_sequence']
+        indexes = [
+            models.Index(fields=['machine']),
+            models.Index(fields=['status']),
+            models.Index(fields=['planned_start_date']),
+        ]
+    
+    def clean(self):
+        pass
     
     def __str__(self):
         return f"{self.work_order.work_order_number} - Op {self.operation_sequence}: {self.operation_name}"
@@ -278,7 +254,7 @@ class ProductionOutput(BaseModel):
 
 
 class MachineDowntime(BaseModel):
-    work_center = models.ForeignKey(WorkCenter, on_delete=models.CASCADE, related_name='downtimes')
+    machine = models.ForeignKey(Machine, on_delete=models.CASCADE, related_name='downtimes', null=True, blank=True)
     start_time = models.DateTimeField()
     end_time = models.DateTimeField(null=True, blank=True)
     reason = models.CharField(max_length=200)
@@ -296,6 +272,11 @@ class MachineDowntime(BaseModel):
     class Meta:
         db_table = 'machine_downtimes'
         ordering = ['-start_time']
+        indexes = [
+            models.Index(fields=['machine']),
+            models.Index(fields=['start_time']),
+            models.Index(fields=['category']),
+        ]
     
     @property
     def duration_minutes(self):
@@ -304,7 +285,7 @@ class MachineDowntime(BaseModel):
         return None
     
     def __str__(self):
-        return f"{self.work_center.code} - {self.reason}"
+        return f"{self.machine.machine_code} - {self.reason}"
 
 
 # New models for ProcessConfig and workflow functionality

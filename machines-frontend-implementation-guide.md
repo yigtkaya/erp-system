@@ -6,29 +6,30 @@ This guide provides a comprehensive implementation plan for the machines page fr
 
 ## Backend API Endpoints Available
 
-### Equipment/Machines (Maintenance Module)
+### Machines (Manufacturing Module)
+
+- **Base URL**: `/api/manufacturing/machines/`
+- **Methods**: GET, POST, PUT, PATCH, DELETE
+- **Filters**: `status`, `machine_type`, `is_active`
+- **Search**: `machine_code`, `brand`, `model`, `serial_number`
+- **Custom Actions**:
+  - `GET /api/manufacturing/machines/{id}/downtime_history/` - Get downtime history
+  - `GET /api/manufacturing/machines/{id}/maintenance_status/` - Get maintenance status
+
+### Equipment (Maintenance Module)
 
 - **Base URL**: `/api/maintenance/equipment/`
 - **Methods**: GET, POST, PUT, PATCH, DELETE
-- **Filters**: `work_center`, `status`
+- **Filters**: `status`
 - **Search**: `code`, `name`, `serial_number`
 - **Custom Actions**:
   - `GET /api/maintenance/equipment/{id}/maintenance_history/` - Get maintenance history
-
-### Work Centers (Manufacturing Module)
-
-- **Base URL**: `/api/manufacturing/work-centers/`
-- **Methods**: GET, POST, PUT, PATCH, DELETE
-- **Filters**: `production_line`, `is_active`
-- **Search**: `code`, `name`
-- **Custom Actions**:
-  - `GET /api/manufacturing/work-centers/{id}/downtime_history/` - Get downtime history
 
 ### Machine Downtime (Manufacturing Module)
 
 - **Base URL**: `/api/manufacturing/machine-downtimes/`
 - **Methods**: GET, POST, PUT, PATCH, DELETE
-- **Filters**: `work_center`, `category`, `reported_by`
+- **Filters**: `machine`, `category`, `reported_by`
 
 ### Maintenance Work Orders
 
@@ -57,34 +58,7 @@ This guide provides a comprehensive implementation plan for the machines page fr
 
 ## Data Models Structure
 
-### Equipment (Machine) Model
-
-```typescript
-interface Equipment {
-  id: number;
-  code: string;
-  name: string;
-  description?: string;
-  model?: string;
-  serial_number?: string;
-  manufacturer?: string;
-  purchase_date?: string;
-  warranty_end_date?: string;
-  status: "ACTIVE" | "INACTIVE" | "MAINTENANCE" | "REPAIR" | "DISPOSED";
-  location?: string;
-  work_center?: WorkCenter;
-  work_center_id?: number;
-  work_center_display?: WorkCenter;
-  parent_equipment?: Equipment;
-  maintenance_interval_days: number;
-  last_maintenance_date?: string;
-  next_maintenance_date?: string;
-  created_at: string;
-  updated_at: string;
-}
-```
-
-### Enhanced Machine Model (with Manufacturing Specifications)
+### Machine Model (Manufacturing Module)
 
 ```typescript
 interface Machine {
@@ -121,9 +95,32 @@ interface Machine {
   last_maintenance_date?: string;
   next_maintenance_date?: string;
   maintenance_notes?: string;
-  work_center?: WorkCenter;
-  work_center_id?: number;
-  work_center_display?: WorkCenter;
+  is_active: boolean;
+  is_maintenance_overdue: boolean;
+  created_at: string;
+  updated_at: string;
+}
+```
+
+### Equipment Model (Maintenance Module)
+
+```typescript
+interface Equipment {
+  id: number;
+  code: string;
+  name: string;
+  description?: string;
+  model?: string;
+  serial_number?: string;
+  manufacturer?: string;
+  purchase_date?: string;
+  warranty_end_date?: string;
+  status: "ACTIVE" | "INACTIVE" | "MAINTENANCE" | "REPAIR" | "DISPOSED";
+  location?: string;
+  parent_equipment?: Equipment;
+  maintenance_interval_days: number;
+  last_maintenance_date?: string;
+  next_maintenance_date?: string;
   created_at: string;
   updated_at: string;
 }
@@ -195,23 +192,6 @@ const MachineStatusLabels = {
   [MachineStatus.BROKEN]: "Broken",
   [MachineStatus.RETIRED]: "Retired",
 };
-```
-
-### Work Center Model
-
-```typescript
-interface WorkCenter {
-  id: number;
-  code: string;
-  name: string;
-  description?: string;
-  production_line: ProductionLine;
-  capacity_per_hour: number;
-  setup_time_minutes: number;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
 ```
 
 ### Maintenance Work Order Model
@@ -305,7 +285,9 @@ interface MaintenanceLog {
 ```typescript
 interface MachineDowntime {
   id: number;
-  work_center: WorkCenter;
+  machine: Machine;
+  machine_id: number;
+  machine_display: Machine;
   start_time: string;
   end_time?: string;
   reason: string;
@@ -318,7 +300,10 @@ interface MachineDowntime {
     | "OTHER";
   notes?: string;
   reported_by: User;
+  reported_by_display: User;
   duration_minutes?: number;
+  created_at: string;
+  updated_at: string;
 }
 ```
 
@@ -352,7 +337,7 @@ interface MachineDowntime {
 interface MachinesPageProps {}
 
 const MachinesPage: React.FC<MachinesPageProps> = () => {
-  const [machines, setMachines] = useState<Equipment[]>([]);
+  const [machines, setMachines] = useState<Machine[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState<MachineFilters>({});
   const [searchTerm, setSearchTerm] = useState("");
@@ -360,9 +345,7 @@ const MachinesPage: React.FC<MachinesPageProps> = () => {
   // State management for modals
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [selectedMachine, setSelectedMachine] = useState<Equipment | null>(
-    null
-  );
+  const [selectedMachine, setSelectedMachine] = useState<Machine | null>(null);
 
   return (
     <div className="machines-page">
@@ -636,11 +619,6 @@ const MachineTable: React.FC<MachineTableProps> = ({
       sortable: true,
     },
     {
-      header: "Work Center",
-      accessor: "work_center",
-      render: (workCenter: WorkCenter) => workCenter?.name || "N/A",
-    },
-    {
       header: "Axis Count",
       accessor: "axis_count",
       render: (axisCount: string) =>
@@ -649,7 +627,7 @@ const MachineTable: React.FC<MachineTableProps> = ({
     {
       header: "Next Maintenance",
       accessor: "next_maintenance_date",
-      render: (date: string) => {
+      render: (date: string, machine: Machine) => {
         if (!date) return "N/A";
         const maintenanceDate = new Date(date);
         const today = new Date();
@@ -744,16 +722,15 @@ interface MachineFiltersProps {
 
 interface MachineFilters {
   status?: string;
-  work_center?: string;
+  machine_type?: string;
   maintenance_due?: boolean;
   search?: string;
 }
 
 const MachineFilters: React.FC<MachineFiltersProps> = ({ onFiltersChange }) => {
-  const [workCenters, setWorkCenters] = useState<WorkCenter[]>([]);
   const [filters, setFilters] = useState<MachineFilters>({
     status: "",
-    work_center: "",
+    machine_type: "",
     maintenance_due: false,
   });
 
@@ -762,19 +739,6 @@ const MachineFilters: React.FC<MachineFiltersProps> = ({ onFiltersChange }) => {
     setFilters(newFilters);
     onFiltersChange(newFilters);
   };
-
-  useEffect(() => {
-    // Fetch work centers for filter dropdown
-    const fetchWorkCenters = async () => {
-      try {
-        const response = await api.get("/manufacturing/work-centers/");
-        setWorkCenters(response.data.results || response.data);
-      } catch (error) {
-        console.error("Failed to fetch work centers:", error);
-      }
-    };
-    fetchWorkCenters();
-  }, []);
 
   return (
     <div className="filters-panel mb-4 p-4 bg-gray-50 rounded-lg">
@@ -785,21 +749,28 @@ const MachineFilters: React.FC<MachineFiltersProps> = ({ onFiltersChange }) => {
           onChange={(value) => handleFilterChange("status", value)}
           options={[
             { value: "", label: "All Statuses" },
-            { value: "ACTIVE", label: "Active" },
+            { value: "AVAILABLE", label: "Available" },
+            { value: "IN_USE", label: "In Use" },
             { value: "MAINTENANCE", label: "Maintenance" },
-            { value: "REPAIR", label: "Repair" },
-            { value: "INACTIVE", label: "Inactive" },
-            { value: "DISPOSED", label: "Disposed" },
+            { value: "BROKEN", label: "Broken" },
+            { value: "RETIRED", label: "Retired" },
           ]}
         />
 
         <Select
-          label="Work Center"
-          value={filters.work_center}
-          onChange={(value) => handleFilterChange("work_center", value)}
+          label="Machine Type"
+          value={filters.machine_type}
+          onChange={(value) => handleFilterChange("machine_type", value)}
           options={[
-            { value: "", label: "All Work Centers" },
-            ...workCenters.map((wc) => ({ value: wc.id, label: wc.name })),
+            { value: "", label: "All Types" },
+            { value: "CNC_MILLING", label: "CNC Milling" },
+            { value: "CNC_LATHE", label: "CNC Lathe" },
+            { value: "DRILLING", label: "Drilling" },
+            { value: "GRINDING", label: "Grinding" },
+            { value: "WELDING", label: "Welding" },
+            { value: "ASSEMBLY", label: "Assembly" },
+            { value: "INSPECTION", label: "Inspection" },
+            { value: "OTHER", label: "Other" },
           ]}
         />
 
@@ -814,7 +785,7 @@ const MachineFilters: React.FC<MachineFiltersProps> = ({ onFiltersChange }) => {
           onClick={() => {
             const resetFilters = {
               status: "",
-              work_center: "",
+              machine_type: "",
               maintenance_due: false,
             };
             setFilters(resetFilters);
@@ -869,7 +840,7 @@ const MachineDetailModal: React.FC<MachineDetailModalProps> = ({
   const fetchMaintenanceHistory = async () => {
     try {
       const response = await api.get(
-        `/maintenance/equipment/${machine.id}/maintenance_history/`
+        `/manufacturing/machines/${machine.id}/maintenance_status/`
       );
       setMaintenanceHistory(response.data.logs || []);
     } catch (error) {
@@ -880,7 +851,7 @@ const MachineDetailModal: React.FC<MachineDetailModalProps> = ({
   const fetchDowntimeHistory = async () => {
     try {
       const response = await api.get(
-        `/manufacturing/machine-downtimes/?work_center=${machine.work_center?.id}`
+        `/manufacturing/machine-downtimes/?machine=${machine.id}`
       );
       setDowntimeHistory(response.data.results || []);
     } catch (error) {
@@ -939,10 +910,6 @@ const MachineDetailModal: React.FC<MachineDetailModalProps> = ({
                         : "N/A"
                     }
                   />
-                  <DetailRow
-                    label="Work Center"
-                    value={machine.work_center?.name || "N/A"}
-                  />
                 </div>
               </div>
 
@@ -952,6 +919,10 @@ const MachineDetailModal: React.FC<MachineDetailModalProps> = ({
                   <DetailRow
                     label="Status"
                     value={<MachineStatusBadge status={machine.status} />}
+                  />
+                  <DetailRow
+                    label="Active"
+                    value={machine.is_active ? "Yes" : "No"}
                   />
                   <DetailRow
                     label="Maintenance Interval"
@@ -971,14 +942,13 @@ const MachineDetailModal: React.FC<MachineDetailModalProps> = ({
                       machine.next_maintenance_date ? (
                         <span
                           className={
-                            new Date(machine.next_maintenance_date) < new Date()
+                            machine.is_maintenance_overdue
                               ? "text-red-600 font-medium"
                               : "text-gray-600"
                           }
                         >
                           {formatDate(machine.next_maintenance_date)}
-                          {new Date(machine.next_maintenance_date) <
-                            new Date() && " (Overdue)"}
+                          {machine.is_maintenance_overdue && " (Overdue)"}
                         </span>
                       ) : (
                         "Not scheduled"
@@ -1114,7 +1084,7 @@ const MachineDetailModal: React.FC<MachineDetailModalProps> = ({
         {activeTab === "downtime" && (
           <DowntimeHistoryTab
             history={downtimeHistory}
-            workCenterId={machine.work_center?.id}
+            machineId={machine.id}
             onRefresh={fetchDowntimeHistory}
           />
         )}
@@ -1179,24 +1149,11 @@ const AddMachineModal: React.FC<AddMachineModalProps> = ({
     axis_count: "",
     status: "AVAILABLE",
     maintenance_interval: 90,
+    is_active: true,
   });
 
-  const [workCenters, setWorkCenters] = useState<WorkCenter[]>([]);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState("basic");
-
-  useEffect(() => {
-    // Fetch work centers
-    const fetchWorkCenters = async () => {
-      try {
-        const response = await api.get("/manufacturing/work-centers/");
-        setWorkCenters(response.data.results || response.data);
-      } catch (error) {
-        console.error("Failed to fetch work centers:", error);
-      }
-    };
-    fetchWorkCenters();
-  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1290,21 +1247,6 @@ const AddMachineModal: React.FC<AddMachineModalProps> = ({
                 />
 
                 <Select
-                  label="Work Center"
-                  value={formData.work_center_id}
-                  onChange={(value) =>
-                    setFormData({ ...formData, work_center_id: value })
-                  }
-                  options={[
-                    { value: "", label: "Select Work Center" },
-                    ...workCenters.map((wc) => ({
-                      value: wc.id,
-                      label: wc.name,
-                    })),
-                  ]}
-                />
-
-                <Select
                   label="Status"
                   value={formData.status}
                   onChange={(value) =>
@@ -1325,6 +1267,16 @@ const AddMachineModal: React.FC<AddMachineModalProps> = ({
                     setFormData({ ...formData, manufacturing_year: value })
                   }
                 />
+
+                <div className="flex items-center">
+                  <Checkbox
+                    label="Active"
+                    checked={formData.is_active}
+                    onChange={(checked) =>
+                      setFormData({ ...formData, is_active: checked })
+                    }
+                  />
+                </div>
               </div>
 
               <Textarea
@@ -1544,7 +1496,7 @@ const AddMachineModal: React.FC<AddMachineModalProps> = ({
 ```typescript
 // components/machines/MaintenanceModal.tsx
 interface MaintenanceModalProps {
-  machine: Equipment;
+  machine: Machine;
   show: boolean;
   onClose: () => void;
 }
@@ -1559,7 +1511,7 @@ const MaintenanceModal: React.FC<MaintenanceModalProps> = ({
   return (
     <Modal show={show} onClose={onClose} size="xl">
       <Modal.Header>
-        <h2>Maintenance - {machine.code}</h2>
+        <h2>Maintenance - {machine.machine_code}</h2>
       </Modal.Header>
 
       <Modal.Body>
@@ -1591,7 +1543,7 @@ const MaintenanceModal: React.FC<MaintenanceModalProps> = ({
 ```typescript
 // components/machines/DowntimeModal.tsx
 interface DowntimeModalProps {
-  machine: Equipment;
+  machine: Machine;
   show: boolean;
   onClose: () => void;
 }
@@ -1614,7 +1566,7 @@ const DowntimeModal: React.FC<DowntimeModalProps> = ({
     try {
       await api.post("/manufacturing/machine-downtimes/", {
         ...formData,
-        work_center: machine.work_center?.id,
+        machine: machine.id,
       });
 
       toast.success("Downtime recorded successfully");
@@ -1627,7 +1579,7 @@ const DowntimeModal: React.FC<DowntimeModalProps> = ({
   return (
     <Modal show={show} onClose={onClose}>
       <Modal.Header>
-        <h2>Record Downtime - {machine.code}</h2>
+        <h2>Record Downtime - {machine.machine_code}</h2>
       </Modal.Header>
 
       <form onSubmit={handleSubmit}>
@@ -1696,7 +1648,7 @@ const DowntimeModal: React.FC<DowntimeModalProps> = ({
 ```typescript
 // hooks/useMachines.ts
 export const useMachines = (filters?: MachineFilters) => {
-  const [machines, setMachines] = useState<Equipment[]>([]);
+  const [machines, setMachines] = useState<Machine[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [pagination, setPagination] = useState({
@@ -1711,11 +1663,11 @@ export const useMachines = (filters?: MachineFilters) => {
       const params = new URLSearchParams();
 
       if (filters?.status) params.append("status", filters.status);
-      if (filters?.work_center)
-        params.append("work_center", filters.work_center);
+      if (filters?.machine_type)
+        params.append("machine_type", filters.machine_type);
       if (filters?.search) params.append("search", filters.search);
 
-      const response = await api.get(`/maintenance/equipment/?${params}`);
+      const response = await api.get(`/manufacturing/machines/?${params}`);
 
       // Handle both paginated and non-paginated responses
       if (response.data.results) {
@@ -1742,9 +1694,9 @@ export const useMachines = (filters?: MachineFilters) => {
     fetchMachines();
   }, [fetchMachines]);
 
-  const addMachine = async (machineData: Partial<Equipment>) => {
+  const addMachine = async (machineData: Partial<Machine>) => {
     try {
-      const response = await api.post("/maintenance/equipment/", machineData);
+      const response = await api.post("/manufacturing/machines/", machineData);
       setMachines((prev) => [...prev, response.data]);
       return response.data;
     } catch (error) {
@@ -1753,10 +1705,10 @@ export const useMachines = (filters?: MachineFilters) => {
     }
   };
 
-  const updateMachine = async (id: number, machineData: Partial<Equipment>) => {
+  const updateMachine = async (id: number, machineData: Partial<Machine>) => {
     try {
       const response = await api.patch(
-        `/maintenance/equipment/${id}/`,
+        `/manufacturing/machines/${id}/`,
         machineData
       );
       setMachines((prev) => prev.map((m) => (m.id === id ? response.data : m)));
@@ -1769,7 +1721,7 @@ export const useMachines = (filters?: MachineFilters) => {
 
   const deleteMachine = async (id: number) => {
     try {
-      await api.delete(`/maintenance/equipment/${id}/`);
+      await api.delete(`/manufacturing/machines/${id}/`);
       setMachines((prev) => prev.filter((m) => m.id !== id));
     } catch (error) {
       console.error("Error deleting machine:", error);
@@ -1808,7 +1760,7 @@ export const useMaintenanceHistory = (machineId: number) => {
     try {
       setLoading(true);
       const response = await api.get(
-        `/maintenance/equipment/${machineId}/maintenance_history/`
+        `/manufacturing/machines/${machineId}/maintenance_status/`
       );
       setHistory(response.data);
       setError(null);
@@ -1828,43 +1780,7 @@ export const useMaintenanceHistory = (machineId: number) => {
 };
 ```
 
-### 3. useWorkCenters Hook
-
-```typescript
-// hooks/useWorkCenters.ts
-export const useWorkCenters = () => {
-  const [workCenters, setWorkCenters] = useState<WorkCenter[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchWorkCenters = useCallback(async () => {
-    try {
-      setLoading(true);
-      const response = await api.get("/manufacturing/work-centers/");
-      setWorkCenters(response.data.results || response.data);
-      setError(null);
-    } catch (err) {
-      setError("Failed to fetch work centers");
-      console.error("Error fetching work centers:", err);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchWorkCenters();
-  }, [fetchWorkCenters]);
-
-  return {
-    workCenters,
-    loading,
-    error,
-    refetch: fetchWorkCenters,
-  };
-};
-```
-
-### 4. useMaintenanceWorkOrders Hook
+### 3. useMaintenanceWorkOrders Hook
 
 ```typescript
 // hooks/useMaintenanceWorkOrders.ts
@@ -1967,6 +1883,76 @@ export const useMaintenanceWorkOrders = (equipmentId?: number) => {
 };
 ```
 
+## Implementation Steps
+
+### Phase 1: Basic Machine Management (Week 1)
+
+1. **Setup basic page structure**
+
+   - Create main MachinesPage component
+   - Implement basic routing
+   - Setup API service layer for `/manufacturing/machines/`
+
+2. **Implement machine listing**
+
+   - Create MachineTable component
+   - Add search and filtering by status and machine type
+   - Implement pagination
+
+3. **Add machine CRUD operations**
+   - Create AddMachineModal with all technical specifications
+   - Create EditMachineModal
+   - Implement delete functionality
+
+### Phase 2: Enhanced Features (Week 2)
+
+1. **Machine details and history**
+
+   - Create MachineDetailModal with comprehensive technical specs
+   - Implement maintenance history view
+   - Add downtime history
+
+2. **Status management**
+   - Implement status change functionality
+   - Add status-based filtering and alerts
+   - Create maintenance overdue dashboard
+
+### Phase 3: Maintenance Integration (Week 3)
+
+1. **Maintenance scheduling**
+
+   - Create maintenance scheduling forms
+   - Integrate with work orders
+   - Add maintenance calendar view
+
+2. **Downtime tracking**
+   - Implement downtime recording with machine reference
+   - Add downtime analytics
+   - Create downtime reports
+
+### Phase 4: Advanced Features (Week 4)
+
+1. **Analytics and reporting**
+
+   - Machine utilization reports
+   - Maintenance cost tracking
+   - Performance metrics based on capacity and efficiency
+
+2. **Mobile responsiveness**
+   - Optimize for mobile devices
+   - Add touch-friendly interactions
+   - Implement offline capabilities
+
+## Key Changes from Work Center Model
+
+1. **Direct Machine Management**: Machines are now managed directly without work center intermediaries
+2. **Simplified API Structure**: All machine operations go through `/manufacturing/machines/` endpoint
+3. **Enhanced Technical Specifications**: The Machine model includes detailed technical specs like axis count, power ratings, and tooling information
+4. **Integrated Maintenance**: Maintenance tracking is built into the machine model with interval and scheduling fields
+5. **Downtime Association**: Machine downtime is directly associated with machines rather than work centers
+
+This updated implementation provides a more streamlined and comprehensive approach to machine management that aligns with your current Django model structure.
+
 ## Styling and UI Components
 
 ### 1. Status Badge Component
@@ -2068,117 +2054,5 @@ const ActionButtons: React.FC<ActionButtonsProps> = ({
   );
 };
 ```
-
-## Implementation Steps
-
-### Phase 1: Basic Machine Management (Week 1)
-
-1. **Setup basic page structure**
-
-   - Create main MachinesPage component
-   - Implement basic routing
-   - Setup API service layer
-
-2. **Implement machine listing**
-
-   - Create MachineTable component
-   - Add search and filtering
-   - Implement pagination
-
-3. **Add machine CRUD operations**
-   - Create AddMachineModal
-   - Create EditMachineModal
-   - Implement delete functionality
-
-### Phase 2: Enhanced Features (Week 2)
-
-1. **Machine details and history**
-
-   - Create MachineDetailModal
-   - Implement maintenance history view
-   - Add downtime history
-
-2. **Status management**
-   - Implement status change functionality
-   - Add status-based filtering
-   - Create status dashboard
-
-### Phase 3: Maintenance Integration (Week 3)
-
-1. **Maintenance scheduling**
-
-   - Create maintenance scheduling forms
-   - Integrate with work orders
-   - Add maintenance calendar view
-
-2. **Downtime tracking**
-   - Implement downtime recording
-   - Add downtime analytics
-   - Create downtime reports
-
-### Phase 4: Advanced Features (Week 4)
-
-1. **Analytics and reporting**
-
-   - Machine utilization reports
-   - Maintenance cost tracking
-   - Performance metrics
-
-2. **Mobile responsiveness**
-   - Optimize for mobile devices
-   - Add touch-friendly interactions
-   - Implement offline capabilities
-
-## Testing Strategy
-
-### 1. Unit Tests
-
-- Test individual components
-- Test API integration hooks
-- Test utility functions
-
-### 2. Integration Tests
-
-- Test complete user workflows
-- Test API interactions
-- Test state management
-
-### 3. E2E Tests
-
-- Test critical user journeys
-- Test cross-browser compatibility
-- Test mobile responsiveness
-
-## Performance Considerations
-
-1. **Data Loading**
-
-   - Implement pagination for large datasets
-   - Use virtual scrolling for tables
-   - Add loading states and skeletons
-
-2. **Caching**
-
-   - Cache machine data locally
-   - Implement optimistic updates
-   - Use React Query for server state
-
-3. **Bundle Optimization**
-   - Code splitting by routes
-   - Lazy load heavy components
-   - Optimize images and assets
-
-## Security Considerations
-
-1. **Authentication**
-
-   - Verify user permissions for each action
-   - Implement role-based access control
-   - Secure API endpoints
-
-2. **Data Validation**
-   - Validate all form inputs
-   - Sanitize user data
-   - Implement proper error handling
 
 This comprehensive guide provides everything needed to implement a robust machines management page that integrates seamlessly with your Django ERP system's maintenance and manufacturing modules.

@@ -4,7 +4,7 @@ from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.utils import timezone
 from core.models import BaseModel
-from manufacturing.models import WorkCenter, ControlGauge, Fixture
+from manufacturing.models import ControlGauge, Fixture
 from common.models import FileVersionManager, ContentType
 import datetime
 
@@ -52,7 +52,6 @@ class Equipment(BaseModel):
     warranty_end_date = models.DateField(blank=True, null=True)
     status = models.CharField(max_length=20, choices=EquipmentStatus.choices, default=EquipmentStatus.ACTIVE)
     location = models.CharField(max_length=100, blank=True, null=True)
-    work_center = models.ForeignKey(WorkCenter, on_delete=models.SET_NULL, null=True, blank=True, related_name='equipment')
     parent_equipment = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True, related_name='sub_equipment')
     
     # Maintenance scheduling fields
@@ -198,7 +197,7 @@ class MaintenanceTask(BaseModel):
 
 class MaintenancePart(BaseModel):
     work_order = models.ForeignKey(MaintenanceWorkOrder, on_delete=models.CASCADE, related_name='parts')
-    part = models.ForeignKey('inventory.Product', on_delete=models.PROTECT, related_name='maintenance_usages')
+    part = models.ForeignKey('inventory.Product', on_delete=models.PROTECT, related_name='maintenance_usage')
     quantity_required = models.DecimalField(max_digits=10, decimal_places=3)
     quantity_used = models.DecimalField(max_digits=10, decimal_places=3, default=0)
     notes = models.TextField(blank=True, null=True)
@@ -206,13 +205,13 @@ class MaintenancePart(BaseModel):
     class Meta:
         db_table = 'maintenance_part'
         unique_together = ['work_order', 'part']
-    
+        
     def clean(self):
         if self.quantity_used > self.quantity_required:
-            raise ValidationError("Quantity used cannot exceed quantity required")
+            raise ValidationError("Used quantity cannot exceed required quantity")
     
     def __str__(self):
-        return f"{self.work_order.work_order_number} - {self.part.product_code} ({self.quantity_used}/{self.quantity_required})"
+        return f"{self.work_order.work_order_number} - {self.part.product_code}"
 
 
 class MaintenanceLog(BaseModel):
@@ -224,20 +223,22 @@ class MaintenanceLog(BaseModel):
     description = models.TextField()
     hours_spent = models.DecimalField(max_digits=5, decimal_places=2, default=0)
     cost = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    notes = models.TextField(blank=True, null=True)
     
     class Meta:
         db_table = 'maintenance_log'
         ordering = ['-maintenance_date']
         indexes = [
-            models.Index(fields=['equipment', 'maintenance_date']),
+            models.Index(fields=['maintenance_date']),
+            models.Index(fields=['equipment']),
             models.Index(fields=['maintenance_type']),
         ]
     
     def __str__(self):
-        return f"{self.equipment.code} - {self.maintenance_date.strftime('%Y-%m-%d')}"
+        return f"{self.equipment.code} - {self.get_maintenance_type_display()} on {self.maintenance_date.date()}"
 
 
-# New model for CalibrationRecord 
+# Calibration and Fixture models (these depend on ControlGauge and Fixture from manufacturing)
 class CalibrationStatus(models.TextChoices):
     PASSED = 'PASSED', 'Passed'
     FAILED = 'FAILED', 'Failed'
@@ -261,39 +262,38 @@ class CalibrationRecord(BaseModel):
         db_table = 'calibration_record'
         ordering = ['-calibration_date']
         indexes = [
-            models.Index(fields=['control_gauge', 'calibration_date']),
+            models.Index(fields=['calibration_date']),
+            models.Index(fields=['control_gauge']),
             models.Index(fields=['next_calibration_date']),
-            models.Index(fields=['status']),
-            models.Index(fields=['certificate_number']),
         ]
     
     def save(self, *args, **kwargs):
-        """Update the control gauge's calibration dates when creating a calibration record"""
         super().save(*args, **kwargs)
         
-        # Update the control gauge with the latest calibration information
-        # This replicates the SQL trigger functionality
-        if self.status in [CalibrationStatus.PASSED, CalibrationStatus.ADJUSTED]:
-            self.control_gauge.calibration_date = self.calibration_date
-            self.control_gauge.upcoming_calibration_date = self.next_calibration_date
-            self.control_gauge.calibration_certificate = self.certificate_number
+        # Update the control gauge's calibration information
+        gauge = self.control_gauge
+        if self.calibration_date:
+            gauge.calibration_date = self.calibration_date
+            gauge.upcoming_calibration_date = self.next_calibration_date
+            gauge.calibration_certificate = self.certificate_number or ''
             
-            # If gauge is under calibration, set to available when passed
-            if self.control_gauge.status == 'CALIBRATION':
-                self.control_gauge.status = 'AVAILABLE'
-                
-            self.control_gauge.save(update_fields=[
+            # Update gauge status based on calibration result
+            if self.status in [CalibrationStatus.PASSED, CalibrationStatus.ADJUSTED]:
+                gauge.status = 'AVAILABLE'
+            elif self.status == CalibrationStatus.FAILED:
+                gauge.status = 'CALIBRATION'
+            
+            gauge.save(update_fields=[
                 'calibration_date', 
                 'upcoming_calibration_date', 
-                'calibration_certificate',
+                'calibration_certificate', 
                 'status'
             ])
     
     def __str__(self):
-        return f"{self.control_gauge.code} - {self.calibration_date} ({self.get_status_display()})"
+        return f"{self.control_gauge.code} - Calibrated on {self.calibration_date}"
 
 
-# New model for FixtureCheck
 class FixtureCheckStatus(models.TextChoices):
     PASSED = 'PASSED', 'Passed'
     FAILED = 'FAILED', 'Failed'
@@ -317,32 +317,29 @@ class FixtureCheck(BaseModel):
         db_table = 'fixture_check'
         ordering = ['-check_date']
         indexes = [
-            models.Index(fields=['fixture', 'check_date']),
+            models.Index(fields=['check_date']),
+            models.Index(fields=['fixture']),
             models.Index(fields=['next_check_date']),
-            models.Index(fields=['status']),
         ]
     
     def save(self, *args, **kwargs):
-        """Update the fixture's check dates when creating a fixture check record"""
         super().save(*args, **kwargs)
         
-        # Update the fixture with the latest check information
-        # This replicates the SQL trigger functionality
-        if self.status in [FixtureCheckStatus.PASSED, FixtureCheckStatus.REPAIRED]:
-            self.fixture.last_checked = self.check_date
-            self.fixture.next_check_date = self.next_check_date
+        # Update the fixture's check information
+        fixture = self.fixture
+        if self.check_date:
+            fixture.last_checked = self.check_date
+            fixture.next_check_date = self.next_check_date
             
-            # If fixture is under maintenance, set to available when passed
-            if self.fixture.status == 'MAINTENANCE' and self.status == FixtureCheckStatus.PASSED:
-                self.fixture.status = 'AVAILABLE'
-            elif self.status == FixtureCheckStatus.NEEDS_REPAIR:
-                self.fixture.status = 'MAINTENANCE'
-                
-            self.fixture.save(update_fields=[
-                'last_checked', 
-                'next_check_date', 
-                'status'
-            ])
+            # Update fixture status based on check result
+            if self.status == FixtureCheckStatus.PASSED:
+                fixture.status = 'AVAILABLE'
+            elif self.status in [FixtureCheckStatus.FAILED, FixtureCheckStatus.NEEDS_REPAIR]:
+                fixture.status = 'MAINTENANCE'
+            elif self.status == FixtureCheckStatus.REPAIRED:
+                fixture.status = 'AVAILABLE'
+            
+            fixture.save(update_fields=['last_checked', 'next_check_date', 'status'])
     
     def __str__(self):
-        return f"{self.fixture.code} - {self.check_date} ({self.get_status_display()})"
+        return f"{self.fixture.code} - Checked on {self.check_date}"

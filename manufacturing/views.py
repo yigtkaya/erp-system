@@ -6,12 +6,12 @@ from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q, Sum
 from django.utils import timezone
 from .models import (
-    ProductionLine, WorkCenter, WorkOrder, WorkOrderOperation,
+     WorkOrder, WorkOrderOperation,
     MaterialAllocation, ProductionOutput, MachineDowntime, ManufacturingProcess,
     ProductWorkflow, ProcessConfig, Fixture, ControlGauge, SubWorkOrder, Machine
 )
 from .serializers import (
-    ProductionLineSerializer, WorkCenterSerializer, WorkOrderSerializer,
+     WorkOrderSerializer,
     WorkOrderOperationSerializer, MaterialAllocationSerializer,
     ProductionOutputSerializer, MachineDowntimeSerializer, ManufacturingProcessSerializer,
     ProductWorkflowSerializer, ProcessConfigSerializer, FixtureSerializer, ControlGaugeSerializer,
@@ -29,48 +29,11 @@ from inventory.stock_manager import StockManager
 from datetime import timedelta
 import uuid
 
-
-class ProductionLineViewSet(viewsets.ModelViewSet):
-    queryset = ProductionLine.objects.all()
-    serializer_class = ProductionLineSerializer
-    permission_classes = [IsAuthenticated, HasRolePermission]
-    filterset_fields = ['is_active']
-    search_fields = ['code', 'name']
-    ordering_fields = ['code', 'name']
-    ordering = ['code']
-
-
-class WorkCenterViewSet(viewsets.ModelViewSet):
-    queryset = WorkCenter.objects.all()
-    serializer_class = WorkCenterSerializer
-    permission_classes = [IsAuthenticated, HasRolePermission]
-    filterset_fields = ['production_line', 'is_active']
-    search_fields = ['code', 'name']
-    ordering_fields = ['code', 'name']
-    ordering = ['code']
-    
-    @action(detail=True, methods=['get'])
-    def downtime_history(self, request, pk=None):
-        work_center = self.get_object()
-        start_date = request.query_params.get('start_date')
-        end_date = request.query_params.get('end_date')
-        
-        downtimes = MachineDowntime.objects.filter(work_center=work_center)
-        
-        if start_date:
-            downtimes = downtimes.filter(start_time__gte=start_date)
-        if end_date:
-            downtimes = downtimes.filter(start_time__lte=end_date)
-        
-        serializer = MachineDowntimeSerializer(downtimes, many=True)
-        return Response(serializer.data)
-
-
 class WorkOrderViewSet(viewsets.ModelViewSet):
     queryset = WorkOrder.objects.all()
     serializer_class = WorkOrderSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
-    filterset_fields = ['status', 'priority', 'product', 'work_center']
+    filterset_fields = ['status', 'priority', 'product', 'primary_machine']
     search_fields = ['work_order_number', 'product__product_code', 'product__product_name']
     ordering_fields = ['created_at', 'planned_start_date', 'priority']
     ordering = ['-created_at']
@@ -199,76 +162,64 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
             if not available_stock.exists():
                 errors.append(f"No stock available for {allocation.material.product_code}")
                 continue
-                
-            # Allocate from available stock locations
-            allocated_qty = 0
-            references = []
+            
+            remaining_to_allocate = to_allocate
             
             for stock in available_stock:
-                qty_from_this_stock = min(stock.quantity, to_allocate - allocated_qty)
+                if remaining_to_allocate <= 0:
+                    break
                 
-                if qty_from_this_stock <= 0:
-                    continue
-                    
-                # Create stock transaction
-                transaction = StockTransaction.objects.create(
+                # Calculate how much to allocate from this stock
+                allocate_from_stock = min(remaining_to_allocate, stock.quantity)
+                
+                # Create stock transaction for material issue
+                transaction_type = StockTransactionType.objects.get(code='ISSUE')
+                StockTransaction.objects.create(
                     product=allocation.material,
-                    transaction_type=StockTransactionType.PRODUCTION_ISSUE,
-                    quantity=-qty_from_this_stock,  # Negative for issue
-                    category=stock.category,
-                    location=stock.location,
-                    batch_number=stock.batch_number,
-                    reference=f"WO:{work_order.work_order_number}",
-                    work_order=work_order,
+                    product_stock=stock,
+                    transaction_type=transaction_type,
+                    quantity=-allocate_from_stock,
+                    unit_cost=stock.unit_cost,
+                    total_cost=allocate_from_stock * stock.unit_cost,
+                    reference_type='work_order',
+                    reference_id=work_order.id,
+                    notes=f"Material issue for work order {work_order.work_order_number}",
                     created_by=request.user
                 )
                 
-                # Update stock
-                stock.quantity -= qty_from_this_stock
+                # Update stock quantity
+                stock.quantity -= allocate_from_stock
                 stock.save()
                 
-                # Track allocation reference
-                references.append(f"{stock.category.name}:{qty_from_this_stock}")
+                # Update allocation
+                allocation.allocated_quantity += allocate_from_stock
+                remaining_to_allocate -= allocate_from_stock
                 
-                # Update allocated amount
-                allocated_qty += qty_from_this_stock
-                
-                if allocated_qty >= to_allocate:
-                    break
+            allocation.is_allocated = (allocation.allocated_quantity >= allocation.required_quantity)
+            allocation.allocation_date = timezone.now()
+            allocation.save()
             
-            # Update allocation record
-            if allocated_qty > 0:
-                allocation.allocated_quantity += allocated_qty
-                allocation.is_allocated = allocation.allocated_quantity >= allocation.required_quantity
-                allocation.allocation_date = timezone.now()
-                allocation.save()
-                
-                issued_materials.append({
-                    'material': allocation.material.product_code,
-                    'allocated': allocated_qty,
-                    'from': ', '.join(references)
-                })
+            issued_materials.append(allocation)
         
-        # Update work order status if all materials allocated
-        all_allocated = all(a.is_allocated for a in allocations)
+        if errors:
+            return Response(
+                {"detail": "Some materials could not be allocated", "errors": errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
-        if all_allocated and work_order.status == 'PLANNED':
-            work_order.status = 'RELEASED'
-            work_order.save()
-        
-        return Response({
-            'issued_materials': issued_materials,
-            'errors': errors,
-            'all_allocated': all_allocated
-        })
+        serializer = MaterialAllocationSerializer(issued_materials, many=True)
+        return Response(serializer.data)
     
     @action(detail=True, methods=['post'])
     def complete_operation(self, request, pk=None):
         """
-        Complete an operation for a work order
+        Complete an operation and record production output
         """
         work_order = self.get_object()
         operation_id = request.data.get('operation_id')
+        quantity_good = request.data.get('quantity_good', 0)
+        quantity_scrapped = request.data.get('quantity_scrapped', 0)
+        notes = request.data.get('notes', '')
         
         if not operation_id:
             return Response(
@@ -284,25 +235,36 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Update operation status
-        operation.status = 'COMPLETED'
+        if operation.status == 'COMPLETED':
+            return Response(
+                {"detail": "Operation is already completed"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Record production output
+        ProductionOutput.objects.create(
+            work_order=work_order,
+            operation=operation,
+            quantity_good=quantity_good,
+            quantity_scrapped=quantity_scrapped,
+            operator=request.user,
+            notes=notes
+        )
+        
+        # Update operation
+        operation.quantity_completed += quantity_good
+        operation.quantity_scrapped += quantity_scrapped
         operation.actual_end_date = timezone.now()
+        operation.status = 'COMPLETED'
         operation.save()
         
-        # Check if all operations are completed
-        remaining_operations = WorkOrderOperation.objects.filter(
-            work_order=work_order
-        ).exclude(status='COMPLETED').count()
+        # Update work order quantities
+        work_order.quantity_completed += quantity_good
+        work_order.quantity_scrapped += quantity_scrapped
+        work_order.save()
         
-        if remaining_operations == 0 and work_order.status == 'IN_PROGRESS':
-            work_order.status = 'COMPLETED'
-            work_order.actual_end_date = timezone.now()
-            work_order.save()
-        
-        return Response({
-            'detail': f"Operation {operation.operation_name} marked as completed",
-            'all_completed': remaining_operations == 0
-        })
+        serializer = self.get_serializer(work_order)
+        return Response(serializer.data)
     
     @action(detail=True, methods=['post'])
     def record_production(self, request, pk=None):
@@ -310,56 +272,25 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
         Record production output for a work order
         """
         work_order = self.get_object()
-        
-        if work_order.status not in ['IN_PROGRESS', 'COMPLETED']:
-            return Response(
-                {"detail": "Production can only be recorded for work orders in IN_PROGRESS or COMPLETED status"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Get required data from request
         quantity_good = request.data.get('quantity_good', 0)
         quantity_scrapped = request.data.get('quantity_scrapped', 0)
-        operation_id = request.data.get('operation_id')
-        batch_number = request.data.get('batch_number', f"WO-{work_order.work_order_number}")
-        target_category_id = request.data.get('target_category')
+        batch_number = request.data.get('batch_number')
+        notes = request.data.get('notes', '')
         
-        if operation_id:
-            try:
-                operation = WorkOrderOperation.objects.get(id=operation_id, work_order=work_order)
-            except WorkOrderOperation.DoesNotExist:
-                return Response(
-                    {"detail": "Operation not found"},
-                    status=status.HTTP_404_NOT_FOUND
-                )
-        else:
-            operation = None
-        
-        if not target_category_id:
+        if quantity_good <= 0 and quantity_scrapped <= 0:
             return Response(
-                {"detail": "Target inventory category is required"},
+                {"detail": "At least one of quantity_good or quantity_scrapped must be greater than 0"},
                 status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            from inventory.models import InventoryCategory
-            target_category = InventoryCategory.objects.get(id=target_category_id)
-        except InventoryCategory.DoesNotExist:
-            return Response(
-                {"detail": "Target category not found"},
-                status=status.HTTP_404_NOT_FOUND
             )
         
         # Record production output
-        output = ProductionOutput.objects.create(
+        production_output = ProductionOutput.objects.create(
             work_order=work_order,
-            operation=operation,
             quantity_good=quantity_good,
             quantity_scrapped=quantity_scrapped,
-            output_date=timezone.now(),
-            operator=request.user,
             batch_number=batch_number,
-            notes=request.data.get('notes')
+            operator=request.user,
+            notes=notes
         )
         
         # Update work order quantities
@@ -367,133 +298,97 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
         work_order.quantity_scrapped += quantity_scrapped
         work_order.save()
         
-        # If there's good quantity, create inventory transaction
-        if quantity_good > 0:
-            # Create or update product stock
-            stock, created = ProductStock.objects.get_or_create(
-                product=work_order.product,
-                category=target_category,
-                batch_number=batch_number,
-                defaults={
-                    'quantity': 0,
-                    'receipt_date': timezone.now().date()
-                }
-            )
-            
-            stock.quantity += quantity_good
-            stock.save()
-            
-            # Create stock transaction
-            StockTransaction.objects.create(
-                product=work_order.product,
-                transaction_type=StockTransactionType.PRODUCTION_RECEIPT,
-                quantity=quantity_good,
-                category=target_category,
-                batch_number=batch_number,
-                reference=f"WO:{work_order.work_order_number}",
-                work_order=work_order,
-                created_by=request.user
-            )
+        # If work order is completed, create inventory
+        if work_order.quantity_completed >= work_order.quantity_ordered:
+            try:
+                # Create finished goods inventory
+                stock_manager = StockManager()
+                stock_manager.receive_stock(
+                    product=work_order.product,
+                    quantity=quantity_good,
+                    unit_cost=0,  # Will be calculated based on BOM costs
+                    supplier=None,
+                    reference_type='work_order',
+                    reference_id=work_order.id,
+                    notes=f"Production completion for work order {work_order.work_order_number}",
+                    user=request.user
+                )
+                
+                work_order.status = 'COMPLETED'
+                work_order.actual_end_date = timezone.now()
+                work_order.save()
+                
+            except Exception as e:
+                return Response(
+                    {"detail": f"Error creating inventory: {str(e)}"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         
-        serializer = ProductionOutputSerializer(output)
+        serializer = ProductionOutputSerializer(production_output)
         return Response(serializer.data)
     
     @action(detail=False, methods=['get'])
     def analyses(self, request):
         """
-        Get work order analyses like efficiency, completion rate, etc.
-        Implements functionality similar to vw_work_order_summary view
+        Get various analyses for work orders
         """
-        # Define the date range
-        end_date = timezone.now().date()
-        start_date = request.query_params.get('start_date')
+        # Status distribution
+        status_stats = {}
+        for status_choice in WorkOrder.status.field.choices:
+            count = WorkOrder.objects.filter(status=status_choice[0]).count()
+            status_stats[status_choice[1]] = count
         
-        if start_date:
-            start_date = timezone.datetime.strptime(start_date, '%Y-%m-%d').date()
-        else:
-            # Default to last 30 days
-            start_date = end_date - timedelta(days=30)
+        # Priority distribution
+        priority_stats = {}
+        for priority_choice in WorkOrder.priority.field.choices:
+            count = WorkOrder.objects.filter(priority=priority_choice[0]).count()
+            priority_stats[priority_choice[1]] = count
         
-        # Get completed work orders in the date range
+        # Overdue work orders
+        overdue_count = WorkOrder.objects.filter(
+            planned_end_date__lt=timezone.now(),
+            status__in=['DRAFT', 'PLANNED', 'RELEASED', 'IN_PROGRESS']
+        ).count()
+        
+        # Completed this month
+        from django.utils import timezone
+        from datetime import datetime
+        
+        now = timezone.now()
+        start_of_month = datetime(now.year, now.month, 1, tzinfo=now.tzinfo)
+        
+        completed_this_month = WorkOrder.objects.filter(
+            status='COMPLETED',
+            actual_end_date__gte=start_of_month
+        ).count()
+        
+        # Production efficiency
         completed_orders = WorkOrder.objects.filter(
-            actual_end_date__range=(start_date, end_date + timedelta(days=1)),
-            status='COMPLETED'
+            status='COMPLETED',
+            actual_end_date__isnull=False,
+            planned_end_date__isnull=False
         )
         
-        # Calculate efficiency and other metrics
-        analyses = completed_orders.aggregate(
-            total_count=Count('id'),
-            on_time_count=Count(
-                Case(When(actual_end_date__lte=F('planned_end_date'), then=1))
-            ),
-            total_ordered=Sum('quantity_ordered'),
-            total_completed=Sum('quantity_completed'),
-            total_scrapped=Sum('quantity_scrapped')
-        )
+        total_efficiency = 0
+        efficiency_count = 0
         
-        # Calculate derived metrics
-        if analyses['total_count'] > 0:
-            analyses['on_time_percentage'] = (analyses['on_time_count'] / analyses['total_count']) * 100
-        else:
-            analyses['on_time_percentage'] = 0
+        for order in completed_orders:
+            planned_duration = (order.planned_end_date - order.planned_start_date).total_seconds()
+            actual_duration = (order.actual_end_date - order.actual_start_date).total_seconds()
             
-        if analyses['total_ordered']:
-            analyses['completion_rate'] = (analyses['total_completed'] / analyses['total_ordered']) * 100
-            analyses['scrap_rate'] = (analyses['total_scrapped'] / analyses['total_ordered']) * 100
-        else:
-            analyses['completion_rate'] = 0
-            analyses['scrap_rate'] = 0
+            if actual_duration > 0:
+                efficiency = (planned_duration / actual_duration) * 100
+                total_efficiency += efficiency
+                efficiency_count += 1
         
-        # Get metrics by product
-        by_product = completed_orders.values(
-            'product__product_code', 'product__name'
-        ).annotate(
-            count=Count('id'),
-            ordered=Sum('quantity_ordered'),
-            completed=Sum('quantity_completed'),
-            scrapped=Sum('quantity_scrapped'),
-            on_time=Count(
-                Case(When(actual_end_date__lte=F('planned_end_date'), then=1))
-            )
-        ).order_by('-count')
-        
-        # Get metrics by work center
-        by_work_center = completed_orders.values(
-            'work_center__code', 'work_center__name'
-        ).annotate(
-            count=Count('id'),
-            ordered=Sum('quantity_ordered'),
-            completed=Sum('quantity_completed'),
-            scrapped=Sum('quantity_scrapped'),
-            on_time=Count(
-                Case(When(actual_end_date__lte=F('planned_end_date'), then=1))
-            )
-        ).order_by('-count')
-        
-        # Calculate average lead times
-        lead_times = completed_orders.filter(
-            actual_start_date__isnull=False,
-            actual_end_date__isnull=False
-        ).annotate(
-            lead_time=ExpressionWrapper(
-                F('actual_end_date') - F('actual_start_date'),
-                output_field=models.DurationField()
-            )
-        ).aggregate(
-            avg_lead_time=models.Avg('lead_time'),
-            min_lead_time=models.Min('lead_time'),
-            max_lead_time=models.Max('lead_time')
-        )
+        avg_efficiency = total_efficiency / efficiency_count if efficiency_count > 0 else 0
         
         return Response({
-            'summary': analyses,
-            'by_product': by_product,
-            'by_work_center': by_work_center,
-            'lead_times': lead_times,
-            'date_range': {
-                'start_date': start_date,
-                'end_date': end_date
-            }
+            'status_distribution': status_stats,
+            'priority_distribution': priority_stats,
+            'overdue_count': overdue_count,
+            'completed_this_month': completed_this_month,
+            'average_efficiency': round(avg_efficiency, 2)
         })
 
 
@@ -501,7 +396,7 @@ class WorkOrderOperationViewSet(viewsets.ModelViewSet):
     queryset = WorkOrderOperation.objects.all()
     serializer_class = WorkOrderOperationSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
-    filterset_fields = ['work_order', 'status', 'work_center']
+    filterset_fields = ['work_order', 'status', 'machine']
     ordering = ['operation_sequence']
     
     @action(detail=True, methods=['post'])
@@ -552,8 +447,8 @@ class MachineDowntimeViewSet(viewsets.ModelViewSet):
     queryset = MachineDowntime.objects.all()
     serializer_class = MachineDowntimeSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
-    filterset_fields = ['work_center', 'category', 'reported_by']
-    search_fields = ['work_center__code', 'reason', 'reported_by__username']
+    filterset_fields = ['machine', 'category', 'reported_by']
+    search_fields = ['machine__machine_code', 'reason', 'reported_by__username']
     ordering_fields = ['start_time', 'end_time']
     ordering = ['-start_time']
     
@@ -582,18 +477,27 @@ class ProductWorkflowViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
-        """Activate a workflow and make it the current version"""
+        """
+        Activate a product workflow, making it the active version
+        """
         workflow = self.get_object()
         
-        if workflow.status == WorkflowStatus.ACTIVE:
+        if workflow.status == 'ACTIVE':
             return Response(
                 {"detail": "Workflow is already active"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        workflow.status = WorkflowStatus.ACTIVE
-        workflow.approval_date = timezone.now()
+        # Set other workflows for this product to obsolete
+        ProductWorkflow.objects.filter(
+            product=workflow.product,
+            status='ACTIVE'
+        ).update(status='OBSOLETE')
+        
+        # Activate this workflow
+        workflow.status = 'ACTIVE'
         workflow.approved_by = request.user
+        workflow.approval_date = timezone.now()
         workflow.save()
         
         serializer = self.get_serializer(workflow)
@@ -611,19 +515,30 @@ class ProcessConfigViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
-        """Activate a process configuration"""
-        process_config = self.get_object()
+        """
+        Activate a process config, making it the active version for this sequence
+        """
+        config = self.get_object()
         
-        if process_config.status == ProcessConfigStatus.ACTIVE:
+        if config.status == 'ACTIVE':
             return Response(
-                {"detail": "Process configuration is already active"},
+                {"detail": "Process config is already active"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        process_config.status = ProcessConfigStatus.ACTIVE
-        process_config.save()
+        # Set other configs for this workflow/sequence/process to obsolete
+        ProcessConfig.objects.filter(
+            workflow=config.workflow,
+            sequence_order=config.sequence_order,
+            process=config.process,
+            status='ACTIVE'
+        ).update(status='OBSOLETE')
         
-        serializer = self.get_serializer(process_config)
+        # Activate this config
+        config.status = 'ACTIVE'
+        config.save()
+        
+        serializer = self.get_serializer(config)
         return Response(serializer.data)
 
 
@@ -638,18 +553,26 @@ class FixtureViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
-        """Update fixture status"""
+        """
+        Update fixture status
+        """
         fixture = self.get_object()
         new_status = request.data.get('status')
         
-        if not new_status or new_status not in dict(FixtureStatus.choices).keys():
+        if not new_status:
             return Response(
-                {"detail": "Valid status required"},
+                {"detail": "Status is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if new_status not in [choice[0] for choice in fixture._meta.get_field('status').choices]:
+            return Response(
+                {"detail": "Invalid status"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
         fixture.status = new_status
-        fixture.save(update_fields=['status'])
+        fixture.save()
         
         serializer = self.get_serializer(fixture)
         return Response(serializer.data)
@@ -666,18 +589,26 @@ class ControlGaugeViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
-        """Update control gauge status"""
+        """
+        Update control gauge status
+        """
         gauge = self.get_object()
         new_status = request.data.get('status')
         
-        if not new_status or new_status not in dict(GaugeStatus.choices).keys():
+        if not new_status:
             return Response(
-                {"detail": "Valid status required"},
+                {"detail": "Status is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if new_status not in [choice[0] for choice in gauge._meta.get_field('status').choices]:
+            return Response(
+                {"detail": "Invalid status"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
         gauge.status = new_status
-        gauge.save(update_fields=['status'])
+        gauge.save()
         
         serializer = self.get_serializer(gauge)
         return Response(serializer.data)
@@ -694,27 +625,39 @@ class SubWorkOrderViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
-        """Update sub work order status"""
-        sub_wo = self.get_object()
+        """
+        Update sub work order status and completion percentage
+        """
+        sub_work_order = self.get_object()
         new_status = request.data.get('status')
+        completion_percentage = request.data.get('completion_percentage')
         
-        if not new_status or new_status not in dict(WorkOrderStatus.choices).keys():
-            return Response(
-                {"detail": "Valid status required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        if new_status:
+            if new_status not in [choice[0] for choice in sub_work_order._meta.get_field('status').choices]:
+                return Response(
+                    {"detail": "Invalid status"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            sub_work_order.status = new_status
+            
+            if new_status == 'COMPLETED':
+                sub_work_order.completion_percentage = 100
+                sub_work_order.actual_end = timezone.now()
+            elif new_status == 'IN_PROGRESS' and not sub_work_order.actual_start:
+                sub_work_order.actual_start = timezone.now()
         
-        sub_wo.status = new_status
+        if completion_percentage is not None:
+            if 0 <= completion_percentage <= 100:
+                sub_work_order.completion_percentage = completion_percentage
+            else:
+                return Response(
+                    {"detail": "Completion percentage must be between 0 and 100"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
         
-        # Update actual start/end dates if moving to in-progress or completed
-        if new_status == WorkOrderStatus.IN_PROGRESS and not sub_wo.actual_start:
-            sub_wo.actual_start = timezone.now()
-        elif new_status == WorkOrderStatus.COMPLETED and not sub_wo.actual_end:
-            sub_wo.actual_end = timezone.now()
+        sub_work_order.save()
         
-        sub_wo.save()
-        
-        serializer = self.get_serializer(sub_wo)
+        serializer = self.get_serializer(sub_work_order)
         return Response(serializer.data)
 
 
@@ -727,16 +670,14 @@ class ManufacturingUtilityViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'], url_path='clone-bom')
     def clone_bom(self, request):
         """
-        Clone a product's BOM to create a new BOM for another product
-        Similar to fn_clone_bom function in SQL
+        Clone BOM from one product to another
         """
         source_product_id = request.data.get('source_product_id')
         target_product_id = request.data.get('target_product_id')
-        new_version = request.data.get('new_version')
         
         if not source_product_id or not target_product_id:
             return Response(
-                {"detail": "Source and target product IDs are required"},
+                {"detail": "Both source_product_id and target_product_id are required"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -745,109 +686,83 @@ class ManufacturingUtilityViewSet(viewsets.ViewSet):
             target_product = Product.objects.get(id=target_product_id)
         except Product.DoesNotExist:
             return Response(
-                {"detail": "Source or target product not found"},
+                {"detail": "One or both products not found"},
                 status=status.HTTP_404_NOT_FOUND
             )
         
         # Get source BOM items
-        source_bom = ProductBOM.objects.filter(
+        source_bom_items = ProductBOM.objects.filter(
             parent_product=source_product,
             is_active=True
         )
         
-        if not source_bom.exists():
+        if not source_bom_items.exists():
             return Response(
                 {"detail": "No active BOM found for source product"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Determine new version if not provided
-        if not new_version:
-            latest_version = ProductBOM.objects.filter(
-                parent_product=target_product
-            ).order_by('-version').values_list('version', flat=True).first()
-            
-            if latest_version:
-                # Increment the version
-                try:
-                    major, minor = latest_version.split('.')
-                    new_version = f"{major}.{int(minor) + 1}"
-                except ValueError:
-                    new_version = f"{latest_version}.1"
-            else:
-                new_version = "1.0"
-        
-        # Create new BOM items for target product
+        # Clone BOM items
         cloned_items = []
         
         with transaction.atomic():
-            for bom_item in source_bom:
-                # Check if this component already exists in target BOM
-                existing = ProductBOM.objects.filter(
+            # Deactivate existing BOM for target product
+            ProductBOM.objects.filter(
+                parent_product=target_product,
+                is_active=True
+            ).update(is_active=False)
+            
+            # Create new BOM items
+            for bom_item in source_bom_items:
+                cloned_item = ProductBOM.objects.create(
                     parent_product=target_product,
                     child_product=bom_item.child_product,
-                    version=new_version
-                ).first()
-                
-                if existing:
-                    # Update existing item
-                    existing.quantity = bom_item.quantity
-                    existing.unit_of_measure = bom_item.unit_of_measure
-                    existing.position = bom_item.position
-                    existing.notes = f"Cloned from {source_product.product_code} - {bom_item.notes or ''}"
-                    existing.is_active = True
-                    existing.effective_date = timezone.now().date()
-                    existing.save()
-                    cloned_items.append(existing)
-                else:
-                    # Create new BOM item
-                    new_item = ProductBOM.objects.create(
-                        parent_product=target_product,
-                        child_product=bom_item.child_product,
-                        quantity=bom_item.quantity,
-                        unit_of_measure=bom_item.unit_of_measure,
-                        position=bom_item.position,
-                        notes=f"Cloned from {source_product.product_code} - {bom_item.notes or ''}",
-                        is_active=True,
-                        version=new_version,
-                        effective_date=timezone.now().date(),
-                        created_by=request.user
-                    )
-                    cloned_items.append(new_item)
+                    quantity=bom_item.quantity,
+                    unit_of_measure=bom_item.unit_of_measure,
+                    scrap_factor=bom_item.scrap_factor,
+                    notes=bom_item.notes,
+                    created_by=request.user,
+                    is_active=True
+                )
+                cloned_items.append(cloned_item)
         
         return Response({
-            'source_product': source_product.product_code,
-            'target_product': target_product.product_code,
-            'version': new_version,
-            'items_cloned': len(cloned_items)
+            "detail": f"Successfully cloned {len(cloned_items)} BOM items",
+            "cloned_items": len(cloned_items)
         })
     
     @action(detail=False, methods=['post'], url_path='create-sub-work-orders')
     def create_sub_work_orders(self, request):
         """
-        Create sub-work orders for a parent work order based on BOM
+        Create sub work orders for a main work order based on BOM
         """
-        parent_work_order_id = request.data.get('parent_work_order_id')
+        work_order_id = request.data.get('work_order_id')
         
-        if not parent_work_order_id:
+        if not work_order_id:
             return Response(
-                {"detail": "Parent work order ID is required"},
+                {"detail": "work_order_id is required"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
         try:
-            parent_work_order = WorkOrder.objects.get(id=parent_work_order_id)
+            work_order = WorkOrder.objects.get(id=work_order_id)
         except WorkOrder.DoesNotExist:
             return Response(
-                {"detail": "Parent work order not found"},
+                {"detail": "Work order not found"},
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Get product BOM
+        if work_order.status not in ['DRAFT', 'PLANNED']:
+            return Response(
+                {"detail": "Sub work orders can only be created for work orders in DRAFT or PLANNED status"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get BOM items for the product
         bom_items = ProductBOM.objects.filter(
-            parent_product=parent_work_order.product,
+            parent_product=work_order.product,
             is_active=True
-        ).select_related('child_product')
+        )
         
         if not bom_items.exists():
             return Response(
@@ -855,195 +770,148 @@ class ManufacturingUtilityViewSet(viewsets.ViewSet):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Get target category
-        target_category_id = request.data.get('target_category_id')
-        
-        if not target_category_id:
-            return Response(
-                {"detail": "Target category ID is required"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        try:
-            from inventory.models import InventoryCategory
-            target_category = InventoryCategory.objects.get(id=target_category_id)
-        except InventoryCategory.DoesNotExist:
-            return Response(
-                {"detail": "Target category not found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Create sub-work orders
-        sub_work_orders = []
-        errors = []
+        created_sub_orders = []
         
         with transaction.atomic():
             for bom_item in bom_items:
-                # Skip standard parts and raw materials (only create for semi-finished and assembled products)
-                if bom_item.child_product.product_type not in ['SEMI', 'MONTAGED']:
-                    continue
+                # Determine target category based on product type
+                component_product = bom_item.child_product
+                
+                if component_product.product_type == 'SINGLE':
+                    target_category_name = 'HAMMADDE'
+                elif component_product.product_type == 'SEMI':
+                    target_category_name = 'PROSES'
+                elif component_product.product_type == 'MONTAGED':
+                    target_category_name = 'MAMUL'
+                else:
+                    continue  # Skip unknown product types
+                
+                try:
+                    from inventory.models import InventoryCategory
+                    target_category = InventoryCategory.objects.get(name=target_category_name)
+                except InventoryCategory.DoesNotExist:
+                    continue  # Skip if category doesn't exist
                 
                 # Calculate required quantity
-                required_qty = bom_item.quantity * parent_work_order.quantity_ordered
+                required_quantity = int(bom_item.quantity * work_order.quantity_ordered)
                 
-                # Calculate planned dates (start 1 day before parent WO, end 2 days before)
-                planned_start = parent_work_order.planned_start_date - timedelta(days=1)
-                planned_end = parent_work_order.planned_end_date - timedelta(days=2)
-                
-                # Ensure valid dates (planned end must be after planned start)
-                if planned_end <= planned_start:
-                    planned_end = planned_start + timedelta(hours=8)  # 8-hour default duration
-                
-                # Generate work order number
-                wo_number = f"SUB-{parent_work_order.work_order_number}-{len(sub_work_orders) + 1}"
-                
-                # Validate target category based on product type
-                valid_categories = []
-                product_type = bom_item.child_product.product_type
-                
-                if product_type == 'SINGLE':
-                    valid_categories = ['HAMMADDE', 'KARANTINA', 'HURDA']
-                elif product_type == 'SEMI':
-                    valid_categories = ['PROSES', 'MAMUL', 'KARANTINA', 'HURDA']
-                elif product_type == 'MONTAGED':
-                    valid_categories = ['MAMUL', 'KARANTINA', 'HURDA']
-                
-                if target_category.name not in valid_categories:
-                    errors.append(f"Invalid target category {target_category.name} for product type {product_type}")
+                if required_quantity <= 0:
                     continue
                 
+                # Generate sub work order number
+                sub_wo_number = f"{work_order.work_order_number}-{component_product.product_code}"
+                
+                # Check if sub work order already exists
+                if SubWorkOrder.objects.filter(work_order_number=sub_wo_number).exists():
+                    continue
+                
+                # Calculate planned dates (start 1 day before main work order, end 1 day before main work order start)
+                planned_start = work_order.planned_start_date - timedelta(days=1)
+                planned_end = work_order.planned_start_date - timedelta(hours=1)
+                
                 # Create sub work order
-                sub_wo = SubWorkOrder.objects.create(
-                    parent_work_order=parent_work_order,
+                sub_work_order = SubWorkOrder.objects.create(
+                    parent_work_order=work_order,
                     bom_component=bom_item,
-                    work_order_number=wo_number,
-                    quantity_ordered=required_qty,
-                    quantity_completed=0,
-                    quantity_scrapped=0,
+                    work_order_number=sub_wo_number,
+                    quantity_ordered=required_quantity,
                     planned_start=planned_start,
                     planned_end=planned_end,
-                    status='PLANNED',
-                    completion_percentage=0,
-                    assigned_to=request.user,
                     target_category=target_category,
-                    notes=f"Sub-work order for {parent_work_order.work_order_number}",
                     created_by=request.user
                 )
                 
-                sub_work_orders.append(sub_wo)
+                created_sub_orders.append(sub_work_order)
         
         return Response({
-            'parent_work_order': parent_work_order.work_order_number,
-            'sub_work_orders_created': len(sub_work_orders),
-            'errors': errors
+            "detail": f"Successfully created {len(created_sub_orders)} sub work orders",
+            "sub_work_orders": SubWorkOrderSerializer(created_sub_orders, many=True).data
         })
     
     @action(detail=False, methods=['get'], url_path='work-order-analysis')
     def work_order_analysis(self, request):
         """
-        Get detailed work order performance analysis
-        Similar to vw_work_order_analysis view in SQL
+        Get comprehensive work order analysis
         """
-        # Date range filters
-        end_date = timezone.now().date()
+        # Date range parameters
         start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
+        
+        queryset = WorkOrder.objects.all()
         
         if start_date:
-            start_date = timezone.datetime.strptime(start_date, '%Y-%m-%d').date()
-        else:
-            # Default to last 90 days
-            start_date = end_date - timedelta(days=90)
+            queryset = queryset.filter(planned_start_date__gte=start_date)
+        if end_date:
+            queryset = queryset.filter(planned_start_date__lte=end_date)
         
-        # Get completed work orders in the date range
-        work_orders = WorkOrder.objects.filter(
-            actual_end_date__range=(start_date, end_date + timedelta(days=1))
-        ).select_related('product', 'work_center')
+        # Basic statistics
+        total_orders = queryset.count()
+        completed_orders = queryset.filter(status='COMPLETED').count()
+        in_progress_orders = queryset.filter(status='IN_PROGRESS').count()
+        overdue_orders = queryset.filter(
+            planned_end_date__lt=timezone.now(),
+            status__in=['DRAFT', 'PLANNED', 'RELEASED', 'IN_PROGRESS']
+        ).count()
         
-        # Apply additional filters
-        product_id = request.query_params.get('product_id')
-        if product_id:
-            work_orders = work_orders.filter(product_id=product_id)
-            
-        work_center_id = request.query_params.get('work_center_id')
-        if work_center_id:
-            work_orders = work_orders.filter(work_center_id=work_center_id)
-            
-        status = request.query_params.get('status')
-        if status:
-            work_orders = work_orders.filter(status=status)
+        # Completion rate
+        completion_rate = (completed_orders / total_orders * 100) if total_orders > 0 else 0
         
-        # Calculate performance metrics
-        results = work_orders.annotate(
-            # Time performance
-            planned_duration=ExpressionWrapper(
-                F('planned_end_date') - F('planned_start_date'),
-                output_field=models.DurationField()
-            ),
-            actual_duration=ExpressionWrapper(
-                F('actual_end_date') - F('actual_start_date'),
-                output_field=models.DurationField()
-            ),
-            duration_variance=ExpressionWrapper(
-                F('actual_duration') - F('planned_duration'),
-                output_field=models.DurationField()
-            ),
-            is_on_time=Case(
-                When(actual_end_date__lte=F('planned_end_date'), then=Value(True)),
-                default=Value(False),
-                output_field=models.BooleanField()
-            ),
-            
-            # Quantity performance
-            quantity_variance=ExpressionWrapper(
-                F('quantity_completed') - F('quantity_ordered'),
-                output_field=models.IntegerField()
-            ),
-            completion_percentage=ExpressionWrapper(
-                F('quantity_completed') * 100 / F('quantity_ordered'),
-                output_field=models.DecimalField(max_digits=5, decimal_places=2)
-            ),
-            scrap_percentage=ExpressionWrapper(
-                F('quantity_scrapped') * 100 / F('quantity_ordered'),
-                output_field=models.DecimalField(max_digits=5, decimal_places=2)
-            )
-        ).values(
-            'id', 'work_order_number', 'product__product_code', 'product__name',
-            'work_center__code', 'work_center__name', 'status',
-            'planned_start_date', 'planned_end_date', 'actual_start_date', 'actual_end_date',
-            'quantity_ordered', 'quantity_completed', 'quantity_scrapped',
-            'planned_duration', 'actual_duration', 'duration_variance',
-            'is_on_time', 'quantity_variance', 'completion_percentage', 'scrap_percentage'
+        
+        # Product analysis
+        product_stats = queryset.values(
+            'product__product_code',
+            'product__product_name'
+        ).annotate(
+            total_quantity_ordered=Sum('quantity_ordered'),
+            total_quantity_completed=Sum('quantity_completed'),
+            order_count=models.Count('id')
+        ).order_by('-total_quantity_ordered')[:10]
+        
+        # Monthly trend
+        from django.db.models import Count
+        from django.db.models.functions import TruncMonth
+        
+        monthly_trend = queryset.annotate(
+            month=TruncMonth('planned_start_date')
+        ).values('month').annotate(
+            order_count=Count('id'),
+            completed_count=Count('id', filter=Q(status='COMPLETED'))
+        ).order_by('month')
+        
+        # Priority distribution
+        priority_distribution = queryset.values('priority').annotate(
+            count=Count('id')
+        ).order_by('priority')
+        
+        # Average lead time for completed orders
+        completed_with_dates = queryset.filter(
+            status='COMPLETED',
+            actual_start_date__isnull=False,
+            actual_end_date__isnull=False
         )
         
-        # Calculate summary metrics
-        summary = {
-            'total_work_orders': work_orders.count(),
-            'on_time_count': work_orders.filter(actual_end_date__lte=F('planned_end_date')).count(),
-            'delayed_count': work_orders.filter(actual_end_date__gt=F('planned_end_date')).count(),
-            'completed_quantity': work_orders.aggregate(total=Sum('quantity_completed'))['total'] or 0,
-            'scrapped_quantity': work_orders.aggregate(total=Sum('quantity_scrapped'))['total'] or 0,
-            'ordered_quantity': work_orders.aggregate(total=Sum('quantity_ordered'))['total'] or 0,
-        }
+        total_lead_time = 0
+        lead_time_count = 0
         
-        if summary['total_work_orders'] > 0:
-            summary['on_time_percentage'] = (summary['on_time_count'] / summary['total_work_orders']) * 100
-        else:
-            summary['on_time_percentage'] = 0
-            
-        if summary['ordered_quantity'] > 0:
-            summary['completion_rate'] = (summary['completed_quantity'] / summary['ordered_quantity']) * 100
-            summary['scrap_rate'] = (summary['scrapped_quantity'] / summary['ordered_quantity']) * 100
-        else:
-            summary['completion_rate'] = 0
-            summary['scrap_rate'] = 0
+        for order in completed_with_dates:
+            lead_time = (order.actual_end_date - order.actual_start_date).total_seconds() / 3600  # hours
+            total_lead_time += lead_time
+            lead_time_count += 1
+        
+        avg_lead_time = total_lead_time / lead_time_count if lead_time_count > 0 else 0
         
         return Response({
-            'summary': summary,
-            'work_orders': results,
-            'date_range': {
-                'start_date': start_date,
-                'end_date': end_date
-            }
+            'summary': {
+                'total_orders': total_orders,
+                'completed_orders': completed_orders,
+                'in_progress_orders': in_progress_orders,
+                'overdue_orders': overdue_orders,
+                'completion_rate': round(completion_rate, 2),
+                'avg_lead_time_hours': round(avg_lead_time, 2)
+            },
+            'top_products': list(product_stats),
+            'monthly_trend': list(monthly_trend),
+            'priority_distribution': list(priority_distribution)
         })
 
 
@@ -1053,50 +921,54 @@ class MachineViewSet(viewsets.ModelViewSet):
     """
     queryset = Machine.objects.all()
     serializer_class = MachineSerializer
-    filterset_fields = ['status', 'machine_type', 'work_center']
+    filterset_fields = ['status', 'machine_type', 'is_active']
     search_fields = ['machine_code', 'brand', 'model', 'serial_number']
     ordering_fields = ['machine_code', 'status', 'machine_type', 'created_at']
     ordering = ['machine_code']
-
+    
     def get_serializer_class(self):
-        """Return appropriate serializer based on action"""
         if self.action == 'list':
             return MachineListSerializer
         elif self.action == 'retrieve':
             return MachineDetailSerializer
         return MachineSerializer
-
+    
     def get_queryset(self):
-        """Custom queryset with filtering options"""
-        queryset = Machine.objects.select_related('work_center', 'work_center__production_line')
+        queryset = Machine.objects.all()
         
         # Filter by maintenance status
-        maintenance_due = self.request.query_params.get('maintenance_due')
-        if maintenance_due == 'true':
-            queryset = queryset.filter(
-                next_maintenance_date__lt=timezone.now().date()
-            )
-        elif maintenance_due == 'false':
-            queryset = queryset.exclude(
-                next_maintenance_date__lt=timezone.now().date()
-            )
-        
-        # Filter by work center
-        work_center_id = self.request.query_params.get('work_center')
-        if work_center_id:
-            queryset = queryset.filter(work_center_id=work_center_id)
+        maintenance_overdue = self.request.query_params.get('maintenance_overdue', None)
+        if maintenance_overdue is not None:
+            if maintenance_overdue.lower() == 'true':
+                queryset = queryset.filter(
+                    next_maintenance_date__lt=timezone.now().date()
+                )
+            elif maintenance_overdue.lower() == 'false':
+                queryset = queryset.filter(
+                    Q(next_maintenance_date__gte=timezone.now().date()) |
+                    Q(next_maintenance_date__isnull=True)
+                )
         
         return queryset
-
+    
     @action(detail=True, methods=['post'])
     def update_status(self, request, pk=None):
-        """Update machine status"""
+        """
+        Update machine status
+        """
         machine = self.get_object()
         new_status = request.data.get('status')
+        notes = request.data.get('notes', '')
         
-        if new_status not in dict(Machine.MachineStatus.choices):
+        if not new_status:
             return Response(
-                {'error': 'Invalid status'}, 
+                {"detail": "Status is required"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        if new_status not in [choice[0] for choice in machine._meta.get_field('status').choices]:
+            return Response(
+                {"detail": "Invalid status"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -1104,21 +976,32 @@ class MachineViewSet(viewsets.ModelViewSet):
         machine.status = new_status
         machine.save()
         
-        return Response({
-            'message': f'Machine status updated from {old_status} to {new_status}',
-            'machine': MachineSerializer(machine).data
-        })
-
+        # Record downtime if machine is going to maintenance or broken
+        if new_status in ['MAINTENANCE', 'BROKEN'] and old_status not in ['MAINTENANCE', 'BROKEN']:
+            MachineDowntime.objects.create(
+                machine=machine,
+                start_time=timezone.now(),
+                reason=f"Status changed to {machine.get_status_display()}",
+                category='MAINTENANCE' if new_status == 'MAINTENANCE' else 'BREAKDOWN',
+                notes=notes,
+                reported_by=request.user
+            )
+        
+        serializer = self.get_serializer(machine)
+        return Response(serializer.data)
+    
     @action(detail=True, methods=['post'])
     def record_maintenance(self, request, pk=None):
-        """Record maintenance performed on machine"""
+        """
+        Record maintenance for a machine
+        """
         machine = self.get_object()
         maintenance_date = request.data.get('maintenance_date')
         notes = request.data.get('notes', '')
         
         if not maintenance_date:
             return Response(
-                {'error': 'maintenance_date is required'}, 
+                {"detail": "Maintenance date is required"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -1127,74 +1010,95 @@ class MachineViewSet(viewsets.ModelViewSet):
             maintenance_date = datetime.strptime(maintenance_date, '%Y-%m-%d').date()
         except ValueError:
             return Response(
-                {'error': 'Invalid date format. Use YYYY-MM-DD'}, 
+                {"detail": "Invalid date format. Use YYYY-MM-DD"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Update machine maintenance information
         machine.last_maintenance_date = maintenance_date
-        machine.calculate_next_maintenance()
+        machine.maintenance_notes = notes
+        machine.status = 'AVAILABLE'  # Machine is available after maintenance
+        machine.save()  # This will automatically calculate next_maintenance_date
         
-        if notes:
-            machine.maintenance_notes = notes
+        # End any ongoing downtime for maintenance
+        ongoing_downtime = MachineDowntime.objects.filter(
+            machine=machine,
+            end_time__isnull=True,
+            category='MAINTENANCE'
+        ).first()
         
-        machine.save()
+        if ongoing_downtime:
+            ongoing_downtime.end_time = timezone.now()
+            ongoing_downtime.notes += f" | Maintenance completed: {notes}" if notes else " | Maintenance completed"
+            ongoing_downtime.save()
         
-        return Response({
-            'message': 'Maintenance recorded successfully',
-            'machine': MachineSerializer(machine).data
-        })
-
+        serializer = self.get_serializer(machine)
+        return Response(serializer.data)
+    
     @action(detail=True, methods=['get'])
     def maintenance_history(self, request, pk=None):
-        """Get maintenance history for this machine"""
+        """
+        Get maintenance history for a machine
+        """
         machine = self.get_object()
         
-        # This would integrate with the maintenance module
-        # For now, return basic maintenance info
-        maintenance_info = {
-            'machine_id': machine.id,
-            'machine_code': machine.machine_code,
-            'last_maintenance_date': machine.last_maintenance_date,
-            'next_maintenance_date': machine.next_maintenance_date,
-            'maintenance_interval': machine.maintenance_interval,
-            'is_overdue': machine.is_maintenance_overdue,
-            'maintenance_notes': machine.maintenance_notes
-        }
+        # Get maintenance downtimes
+        maintenance_downtimes = MachineDowntime.objects.filter(
+            machine=machine,
+            category='MAINTENANCE'
+        ).order_by('-start_time')
         
-        return Response(maintenance_info)
-
+        serializer = MachineDowntimeSerializer(maintenance_downtimes, many=True)
+        return Response(serializer.data)
+    
     @action(detail=True, methods=['get'])
     def downtime_history(self, request, pk=None):
-        """Get downtime history for this machine's work center"""
+        """
+        Get downtime history for a machine
+        """
         machine = self.get_object()
+        start_date = request.query_params.get('start_date')
+        end_date = request.query_params.get('end_date')
         
-        if not machine.work_center:
-            return Response({'downtime_records': []})
+        downtimes = MachineDowntime.objects.filter(machine=machine)
         
-        downtime_records = MachineDowntime.objects.filter(
-            work_center=machine.work_center
-        ).order_by('-start_time')[:20]
+        if start_date:
+            downtimes = downtimes.filter(start_time__gte=start_date)
+        if end_date:
+            downtimes = downtimes.filter(start_time__lte=end_date)
         
-        serializer = MachineDowntimeSerializer(downtime_records, many=True)
-        return Response({'downtime_records': serializer.data})
-
+        serializer = MachineDowntimeSerializer(downtimes.order_by('-start_time'), many=True)
+        return Response(serializer.data)
+    
     @action(detail=False, methods=['get'])
     def statistics(self, request):
-        """Get machine statistics"""
-        from django.db.models import Count, Q
-        from django.utils import timezone
+        """
+        Get machine statistics
+        """
+        total_machines = Machine.objects.count()
+        available_machines = Machine.objects.filter(status='AVAILABLE').count()
+        in_use_machines = Machine.objects.filter(status='IN_USE').count()
+        maintenance_machines = Machine.objects.filter(status='MAINTENANCE').count()
+        broken_machines = Machine.objects.filter(status='BROKEN').count()
+        overdue_maintenance = Machine.objects.filter(
+            next_maintenance_date__lt=timezone.now().date()
+        ).count()
         
-        queryset = self.get_queryset()
+        # Machine type distribution
+        machine_type_stats = Machine.objects.values('machine_type').annotate(
+            count=Count('id')
+        ).order_by('machine_type')
         
-        stats = {
-            'total_machines': queryset.count(),
-            'by_status': dict(queryset.values_list('status').annotate(count=Count('id'))),
-            'by_type': dict(queryset.values_list('machine_type').annotate(count=Count('id'))),
-            'maintenance_overdue': queryset.filter(
-                next_maintenance_date__lt=timezone.now().date()
-            ).count(),
-            'available_machines': queryset.filter(status='AVAILABLE').count(),
-            'in_use_machines': queryset.filter(status='IN_USE').count(),
-        }
         
-        return Response(stats)
+        
+        return Response({
+            'total_machines': total_machines,
+            'status_distribution': {
+                'available': available_machines,
+                'in_use': in_use_machines,
+                'maintenance': maintenance_machines,
+                'broken': broken_machines
+            },
+            'overdue_maintenance': overdue_maintenance,
+            'machine_type_distribution': list(machine_type_stats)
+        })

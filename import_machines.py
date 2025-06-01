@@ -10,7 +10,7 @@ import django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'erp_core.settings')
 django.setup()
 
-from manufacturing.models import Machine, MachineType, MachineStatus, WorkCenter, ProductionLine
+from manufacturing.models import Machine, MachineType, MachineStatus
 from datetime import datetime, date
 from django.utils import timezone
 from decimal import Decimal
@@ -56,29 +56,21 @@ def safe_int(value):
     except:
         return None
 
-def main():
-    # Ensure we have a production line and work center
-    production_line, created = ProductionLine.objects.get_or_create(
-        code='MAIN_LINE',
-        defaults={
-            'name': 'Main Production Line',
-            'capacity_per_hour': 100,
-            'is_active': True
-        }
-    )
-    print(f"Production line: {production_line} (created: {created})")
+def safe_date(value):
+    """Safely convert value to date or return None"""
+    if value is None or value == '' or value == '\\N':
+        return None
+    try:
+        # If it's already a date object, return it
+        if isinstance(value, date):
+            return value
+        # Try to parse as string
+        return datetime.strptime(str(value), '%Y-%m-%d').date()
+    except:
+        return None
 
-    work_center, created = WorkCenter.objects.get_or_create(
-        code='MAIN_WC',
-        defaults={
-            'name': 'Main Work Center',
-            'production_line': production_line,
-            'capacity_per_hour': 100,
-            'setup_time_minutes': 30,
-            'is_active': True
-        }
-    )
-    print(f"Work center: {work_center} (created: {created})")
+def main():
+    print("Starting machine import...")
 
     # Machine data from backup
     machines_data = [
@@ -136,10 +128,10 @@ def main():
                 description=description or '',
                 status=MachineStatus.AVAILABLE,
                 maintenance_interval=maintenance_interval or 90,
-                last_maintenance_date=None,
-                next_maintenance_date=None,
+                last_maintenance_date=safe_date(last_maintenance_date),
+                next_maintenance_date=safe_date(next_maintenance_date),
                 maintenance_notes=maintenance_notes or '',
-                work_center=work_center
+                manufacturing_year=safe_date(manufacturing_year)
             )
             
             print(f"✅ Imported machine: {machine.machine_code} - {machine.brand} {machine.model}")

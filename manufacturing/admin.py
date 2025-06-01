@@ -1,38 +1,26 @@
 # manufacturing/admin.py
 from django.contrib import admin
 from .models import (
-    ProductionLine, WorkCenter, WorkOrder, WorkOrderOperation,
+     WorkOrder, WorkOrderOperation,
     MaterialAllocation, ProductionOutput, MachineDowntime,
     ManufacturingProcess, ProductWorkflow, ProcessConfig,
     Fixture, ControlGauge, SubWorkOrder, Machine
 )
 
-@admin.register(ProductionLine)
-class ProductionLineAdmin(admin.ModelAdmin):
-    list_display = ('code', 'name', 'capacity_per_hour', 'is_active')
-    search_fields = ('code', 'name')
-    list_filter = ('is_active',)
-
-@admin.register(WorkCenter)
-class WorkCenterAdmin(admin.ModelAdmin):
-    list_display = ('code', 'name', 'production_line', 'capacity_per_hour', 'is_active')
-    search_fields = ('code', 'name')
-    list_filter = ('production_line', 'is_active')
-
 @admin.register(WorkOrder)
 class WorkOrderAdmin(admin.ModelAdmin):
     list_display = ('work_order_number', 'product', 'quantity_ordered', 'quantity_completed', 
-                   'status', 'priority', 'planned_start_date', 'work_center')
+                   'status', 'priority', 'planned_start_date', 'primary_machine')
     search_fields = ('work_order_number', 'product__product_code', 'product__name')
-    list_filter = ('status', 'priority', 'work_center')
+    list_filter = ('status', 'priority', 'primary_machine')
     date_hierarchy = 'planned_start_date'
 
 @admin.register(WorkOrderOperation)
 class WorkOrderOperationAdmin(admin.ModelAdmin):
-    list_display = ('work_order', 'operation_sequence', 'operation_name', 'work_center', 
+    list_display = ('work_order', 'operation_sequence', 'operation_name', 'machine', 
                    'status', 'planned_start_date')
     search_fields = ('operation_name', 'work_order__work_order_number')
-    list_filter = ('status', 'work_center')
+    list_filter = ('status', 'machine')
     date_hierarchy = 'planned_start_date'
 
 @admin.register(MaterialAllocation)
@@ -52,9 +40,9 @@ class ProductionOutputAdmin(admin.ModelAdmin):
 
 @admin.register(MachineDowntime)
 class MachineDowntimeAdmin(admin.ModelAdmin):
-    list_display = ('work_center', 'start_time', 'end_time', 'reason', 'category')
-    search_fields = ('work_center__code', 'reason')
-    list_filter = ('category', 'work_center')
+    list_display = ('machine', 'start_time', 'end_time', 'reason', 'category')
+    search_fields = ('machine__machine_code', 'reason')
+    list_filter = ('category', 'machine')
     date_hierarchy = 'start_time'
 
 # Admin registrations for new models
@@ -103,16 +91,15 @@ class SubWorkOrderAdmin(admin.ModelAdmin):
 class MachineAdmin(admin.ModelAdmin):
     list_display = [
         'machine_code', 'machine_type', 'brand', 'model', 'status',
-        'work_center', 'last_maintenance_date', 'next_maintenance_date',
+        'last_maintenance_date', 'next_maintenance_date',
         'is_maintenance_overdue'
     ]
     list_filter = [
-        'status', 'machine_type', 'work_center', 'axis_count',
-        'last_maintenance_date', 'next_maintenance_date'
+        'status', 'machine_type', 'axis_count',
+        'last_maintenance_date', 'next_maintenance_date', 'is_active'
     ]
     search_fields = [
-        'machine_code', 'brand', 'model', 'serial_number',
-        'work_center__name', 'work_center__code'
+        'machine_code', 'brand', 'model', 'serial_number'
     ]
     readonly_fields = ['created_at', 'updated_at', 'is_maintenance_overdue']
     
@@ -121,6 +108,11 @@ class MachineAdmin(admin.ModelAdmin):
             'fields': (
                 'machine_code', 'machine_type', 'brand', 'model',
                 'serial_number', 'manufacturing_year', 'description'
+            )
+        }),
+        ('Production Settings', {
+            'fields': (
+                'is_active',
             )
         }),
         ('Technical Specifications', {
@@ -133,8 +125,8 @@ class MachineAdmin(admin.ModelAdmin):
             ),
             'classes': ('collapse',)
         }),
-        ('Status & Location', {
-            'fields': ('status', 'work_center')
+        ('Status', {
+            'fields': ('status',)
         }),
         ('Maintenance', {
             'fields': (
