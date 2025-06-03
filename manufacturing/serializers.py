@@ -291,5 +291,60 @@ class MachineDetailSerializer(serializers.ModelSerializer):
         read_only_fields = ['created_at', 'updated_at']
 
     def get_downtime_history(self, obj):
-        recent_downtimes = obj.downtimes.all()[:5]
-        return MachineDowntimeSerializer(recent_downtimes, many=True).data
+        """Get recent downtime history for this machine"""
+        from .models import MachineDowntime
+        downtimes = MachineDowntime.objects.filter(machine=obj).order_by('-start_time')[:5]
+        return MachineDowntimeSerializer(downtimes, many=True).data
+
+
+class ProductBOMSerializer(serializers.ModelSerializer):
+    """Serializer for ProductBOM (Bill of Materials)"""
+    parent_product = ProductSerializer(read_only=True)
+    parent_product_id = serializers.PrimaryKeyRelatedField(
+        queryset=Product.objects.all(),
+        source='parent_product',
+        write_only=True
+    )
+    child_product = ProductSerializer(read_only=True)
+    child_product_id = serializers.PrimaryKeyRelatedField(
+        queryset=Product.objects.all(),
+        source='child_product',
+        write_only=True
+    )
+    parent_product_code = serializers.StringRelatedField(source='parent_product.stock_code', read_only=True)
+    parent_product_name = serializers.StringRelatedField(source='parent_product.product_name', read_only=True)
+    child_product_code = serializers.StringRelatedField(source='child_product.stock_code', read_only=True)
+    child_product_name = serializers.StringRelatedField(source='child_product.product_name', read_only=True)
+    child_product_type = serializers.StringRelatedField(source='child_product.product_type', read_only=True)
+    unit_of_measure = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = ProductBOM
+        fields = [
+            'id', 'parent_product', 'parent_product_id', 'parent_product_code', 'parent_product_name',
+            'child_product', 'child_product_id', 'child_product_code', 'child_product_name', 'child_product_type',
+            'quantity', 'scrap_percentage', 'operation_sequence', 'notes', 'unit_of_measure',
+            'created_at', 'updated_at'
+        ]
+        read_only_fields = ['created_at', 'updated_at']
+    
+    def get_unit_of_measure(self, obj):
+        return obj.child_product.unit_of_measure.unit_code if obj.child_product.unit_of_measure else None
+    
+    def validate(self, data):
+        """Validate BOM data"""
+        parent_product = data.get('parent_product')
+        child_product = data.get('child_product')
+        
+        if parent_product and child_product:
+            if parent_product == child_product:
+                raise serializers.ValidationError("A product cannot be a component of itself")
+            
+            # Check for existing BOM item
+            if ProductBOM.objects.filter(
+                parent_product=parent_product,
+                child_product=child_product
+            ).exclude(id=self.instance.id if self.instance else None).exists():
+                raise serializers.ValidationError("This BOM item already exists")
+        
+        return data

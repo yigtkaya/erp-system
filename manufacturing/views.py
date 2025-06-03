@@ -3,34 +3,47 @@ from rest_framework import viewsets, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
-from django.db.models import Q, Sum
+from django.db.models import Q, Sum, F, Count, Avg
 from django.utils import timezone
-from .models import (
-     WorkOrder, WorkOrderOperation,
-    MaterialAllocation, ProductionOutput, MachineDowntime, ManufacturingProcess,
-    ProductWorkflow, ProcessConfig, Fixture, ControlGauge, SubWorkOrder, Machine
-)
-from .serializers import (
-     WorkOrderSerializer,
-    WorkOrderOperationSerializer, MaterialAllocationSerializer,
-    ProductionOutputSerializer, MachineDowntimeSerializer, ManufacturingProcessSerializer,
-    ProductWorkflowSerializer, ProcessConfigSerializer, FixtureSerializer, ControlGaugeSerializer,
-    SubWorkOrderSerializer, MachineSerializer, MachineListSerializer,
-    MachineDetailSerializer
-)
-from core.permissions import HasRolePermission
-from django.db import models, transaction
-from django.db.models import F, Case, When, Value, ExpressionWrapper, DecimalField
-from django.db.models.functions import Coalesce
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.http import HttpResponse, JsonResponse
-from inventory.models import Product, ProductBOM, ProductStock, StockTransaction, StockTransactionType
-from inventory.stock_manager import StockManager
 from datetime import timedelta
 import uuid
 
+# Import models
+from .models import (
+    WorkOrder, WorkOrderOperation, MaterialAllocation, ProductionOutput, 
+    MachineDowntime, ManufacturingProcess, ProductWorkflow, ProcessConfig, 
+    Fixture, ControlGauge, SubWorkOrder, Machine, ManufacturingAuditLog
+)
+
+# Import serializers
+from .serializers import (
+    WorkOrderSerializer, WorkOrderOperationSerializer, MaterialAllocationSerializer,
+    ProductionOutputSerializer, MachineDowntimeSerializer, ManufacturingProcessSerializer,
+    ProductWorkflowSerializer, ProcessConfigSerializer, FixtureSerializer, ControlGaugeSerializer,
+    SubWorkOrderSerializer, MachineSerializer, MachineListSerializer, MachineDetailSerializer,
+    ProductBOMSerializer
+)
+
+# Import our custom error handling and logging
+from .exceptions import (
+    WorkOrderException, MachineException, MaterialAllocationException, ProductionException,
+    ErrorMessages, ValidationHelpers, get_standardized_error_response
+)
+from .logging import ManufacturingOperationLogger, log_manufacturing_operation
+
+# Import other dependencies
+from core.permissions import HasRolePermission
+from inventory.models import Product, ProductBOM, ProductStock, StockTransaction, StockTransactionType
+from inventory.stock_manager import StockManager
+
+
 class WorkOrderViewSet(viewsets.ModelViewSet):
-    queryset = WorkOrder.objects.all()
+    queryset = WorkOrder.objects.select_related('product', 'primary_machine', 'sales_order').prefetch_related(
+        'operations__machine', 'material_allocations__material', 'outputs__operator'
+    )
     serializer_class = WorkOrderSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
     filterset_fields = ['status', 'priority', 'product', 'primary_machine']
@@ -39,24 +52,194 @@ class WorkOrderViewSet(viewsets.ModelViewSet):
     ordering = ['-created_at']
     
     def perform_create(self, serializer):
-        serializer.save(created_by=self.request.user)
+        """Enhanced work order creation with validation and logging"""
+        try:
+            # Validate business rules
+            work_order_data = serializer.validated_data
+            
+            # Check if planned dates are valid
+            if work_order_data['planned_end_date'] <= work_order_data['planned_start_date']:
+                raise WorkOrderException(
+                    message=ErrorMessages.WORK_ORDER_INVALID_DATES,
+                    code="INVALID_DATES"
+                )
+            
+            # Check machine availability if assigned
+            if work_order_data.get('primary_machine'):
+                ValidationHelpers.validate_machine_availability(work_order_data['primary_machine'])
+            
+            # Save the work order
+            work_order = serializer.save(created_by=self.request.user)
+            
+            # Log the action
+            ManufacturingOperationLogger.log_work_order_action(
+                user=self.request.user,
+                work_order=work_order,
+                action='CREATE',
+                details={
+                    'product_code': work_order.product.product_code,
+                    'quantity_ordered': work_order.quantity_ordered,
+                    'priority': work_order.priority
+                }
+            )
+            
+            # Create audit log entry
+            ManufacturingAuditLog.log_action(
+                user=self.request.user,
+                action_type='WORK_ORDER_CREATE',
+                message=f"Work order {work_order.work_order_number} created",
+                entity_type='WorkOrder',
+                entity_id=work_order.id,
+                details={
+                    'product_code': work_order.product.product_code,
+                    'quantity_ordered': work_order.quantity_ordered
+                }
+            )
+            
+        except Exception as e:
+            # Log the error
+            ManufacturingOperationLogger.log_work_order_action(
+                user=self.request.user,
+                work_order=None,
+                action='CREATE',
+                success=False,
+                details={'error': str(e)}
+            )
+            raise
+    
+    def perform_update(self, serializer):
+        """Enhanced work order update with validation and logging"""
+        work_order = self.get_object()
+        original_status = work_order.status
+        
+        try:
+            # Validate status transitions if status is changing
+            new_data = serializer.validated_data
+            if 'status' in new_data and new_data['status'] != original_status:
+                ValidationHelpers.validate_work_order_status_transition(
+                    original_status, new_data['status']
+                )
+            
+            # Save the changes
+            updated_work_order = serializer.save()
+            
+            # Log the action
+            ManufacturingOperationLogger.log_work_order_action(
+                user=self.request.user,
+                work_order=updated_work_order,
+                action='UPDATE',
+                details={
+                    'changes': {k: v for k, v in new_data.items()},
+                    'original_status': original_status
+                }
+            )
+            
+            # Create audit log entry
+            ManufacturingAuditLog.log_action(
+                user=self.request.user,
+                action_type='WORK_ORDER_UPDATE',
+                message=f"Work order {updated_work_order.work_order_number} updated",
+                entity_type='WorkOrder',
+                entity_id=updated_work_order.id,
+                details={'changes': new_data}
+            )
+            
+        except Exception as e:
+            ManufacturingOperationLogger.log_work_order_action(
+                user=self.request.user,
+                work_order=work_order,
+                action='UPDATE',
+                success=False,
+                details={'error': str(e)}
+            )
+            raise
     
     @action(detail=True, methods=['post'])
+    @log_manufacturing_operation('WORK_ORDER_START', 'WorkOrder')
     def start_production(self, request, pk=None):
+        """Enhanced start production with comprehensive validation"""
         work_order = self.get_object()
         
-        if work_order.status != 'RELEASED':
-            return Response(
-                {'error': 'Work order must be in RELEASED status to start production'},
-                status=status.HTTP_400_BAD_REQUEST
+        try:
+            # Validate current status
+            if work_order.status != 'RELEASED':
+                raise WorkOrderException(
+                    message=ErrorMessages.WORK_ORDER_CANNOT_START,
+                    code="INVALID_STATUS",
+                    details={'current_status': work_order.status, 'required_status': 'RELEASED'}
+                )
+            
+            # Check if machine is assigned and available
+            if not work_order.primary_machine:
+                raise WorkOrderException(
+                    message=ErrorMessages.WORK_ORDER_NO_MACHINE,
+                    code="NO_MACHINE"
+                )
+            
+            ValidationHelpers.validate_machine_availability(work_order.primary_machine)
+            
+            # Check if materials are allocated
+            material_allocations = work_order.material_allocations.filter(is_allocated=False)
+            if material_allocations.exists():
+                raise WorkOrderException(
+                    message=ErrorMessages.WORK_ORDER_NO_MATERIALS,
+                    code="NO_MATERIALS",
+                    details={'unallocated_materials': material_allocations.count()}
+                )
+            
+            # Update work order status and dates
+            with transaction.atomic():
+                work_order.status = 'IN_PROGRESS'
+                work_order.actual_start_date = timezone.now()
+                work_order.save(update_fields=['status', 'actual_start_date'])
+                
+                # Update machine status
+                work_order.primary_machine.status = 'IN_USE'
+                work_order.primary_machine.save(update_fields=['status'])
+            
+            # Log the action
+            ManufacturingOperationLogger.log_work_order_action(
+                user=request.user,
+                work_order=work_order,
+                action='START_PRODUCTION',
+                details={'machine_code': work_order.primary_machine.machine_code}
             )
-        
-        work_order.status = 'IN_PROGRESS'
-        work_order.actual_start_date = timezone.now()
-        work_order.save()
-        
-        serializer = self.get_serializer(work_order)
-        return Response(serializer.data)
+            
+            # Create audit log entry
+            ManufacturingAuditLog.log_action(
+                user=request.user,
+                action_type='WORK_ORDER_START',
+                message=f"Production started for work order {work_order.work_order_number}",
+                entity_type='WorkOrder',
+                entity_id=work_order.id
+            )
+            
+            serializer = self.get_serializer(work_order)
+            return Response({
+                'success': True,
+                'message': 'Production started successfully',
+                'data': serializer.data
+            })
+            
+        except Exception as e:
+            ManufacturingOperationLogger.log_work_order_action(
+                user=request.user,
+                work_order=work_order,
+                action='START_PRODUCTION',
+                success=False,
+                details={'error': str(e)}
+            )
+            
+            if isinstance(e, WorkOrderException):
+                return Response(
+                    get_standardized_error_response(e.code, e.message, e.details),
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            else:
+                return Response(
+                    get_standardized_error_response('SYSTEM_ERROR', str(e)),
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
     
     @action(detail=True, methods=['post'])
     def complete_production(self, request, pk=None):
@@ -1101,4 +1284,225 @@ class MachineViewSet(viewsets.ModelViewSet):
             },
             'overdue_maintenance': overdue_maintenance,
             'machine_type_distribution': list(machine_type_stats)
+        })
+
+
+class ProductBOMViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for managing Product Bill of Materials (BOM)
+    """
+    queryset = ProductBOM.objects.select_related('parent_product', 'child_product').all()
+    serializer_class = ProductBOMSerializer
+    permission_classes = [IsAuthenticated, HasRolePermission]
+    filterset_fields = ['parent_product', 'child_product', 'parent_product__product_type', 'child_product__product_type']
+    search_fields = [
+        'parent_product__stock_code', 'parent_product__product_name',
+        'child_product__stock_code', 'child_product__product_name'
+    ]
+    ordering_fields = ['operation_sequence', 'quantity', 'created_at']
+    ordering = ['parent_product__stock_code', 'operation_sequence']
+    
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        
+        # Filter by parent product if specified
+        parent_product_id = self.request.query_params.get('parent_product_id', None)
+        if parent_product_id:
+            queryset = queryset.filter(parent_product_id=parent_product_id)
+        
+        return queryset
+    
+    @action(detail=False, methods=['get'])
+    def dashboard_stats(self, request):
+        """
+        Get BOM dashboard statistics
+        """
+        total_boms = ProductBOM.objects.count()
+        
+        # Products with BOMs
+        products_with_boms = ProductBOM.objects.values('parent_product').distinct().count()
+        
+        # BOM complexity (average components per product)
+        bom_complexity = ProductBOM.objects.values('parent_product').annotate(
+            component_count=Count('child_product')
+        ).aggregate(
+            avg_components=Avg('component_count')
+        )['avg_components'] or 0
+        
+        # Most complex products (top 5)
+        complex_products = ProductBOM.objects.values(
+            'parent_product__stock_code',
+            'parent_product__product_name'
+        ).annotate(
+            component_count=Count('child_product')
+        ).order_by('-component_count')[:5]
+        
+        # Component usage (most used components)
+        popular_components = ProductBOM.objects.values(
+            'child_product__stock_code',
+            'child_product__product_name',
+            'child_product__product_type'
+        ).annotate(
+            usage_count=Count('parent_product')
+        ).order_by('-usage_count')[:10]
+        
+        # Product type distribution in BOMs
+        product_type_distribution = ProductBOM.objects.values(
+            'parent_product__product_type'
+        ).annotate(
+            count=Count('id')
+        ).order_by('-count')
+        
+        # Material requirements summary
+        material_summary = ProductBOM.objects.values(
+            'child_product__product_type'
+        ).annotate(
+            total_items=Count('id'),
+            total_quantity=Sum('quantity')
+        ).order_by('-total_items')
+        
+        return Response({
+            'summary': {
+                'total_boms': total_boms,
+                'products_with_boms': products_with_boms,
+                'avg_components_per_product': round(bom_complexity, 2)
+            },
+            'complex_products': list(complex_products),
+            'popular_components': list(popular_components),
+            'product_type_distribution': list(product_type_distribution),
+            'material_summary': list(material_summary)
+        })
+    
+    @action(detail=False, methods=['get'])
+    def test_action(self, request):
+        """
+        Simple test action to verify action registration works
+        """
+        return Response({'message': 'BOM actions are working correctly', 'total_boms': ProductBOM.objects.count()})
+    
+    @action(detail=False, methods=['get'], url_path='by-product/(?P<product_id>[^/.]+)')
+    def by_product(self, request, product_id=None):
+        """
+        Get BOM for a specific product
+        """
+        try:
+            product = Product.objects.get(id=product_id)
+        except Product.DoesNotExist:
+            return Response(
+                {'error': 'Product not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        bom_items = ProductBOM.objects.filter(parent_product=product).order_by('operation_sequence', 'child_product__stock_code')
+        serializer = self.get_serializer(bom_items, many=True)
+        
+        # Calculate total material requirements
+        total_components = bom_items.count()
+        total_quantity = bom_items.aggregate(total=Sum('quantity'))['total'] or 0
+        
+        return Response({
+            'product': {
+                'id': product.id,
+                'product_code': product.stock_code,
+                'product_name': product.product_name,
+                'product_type': product.product_type
+            },
+            'bom_items': serializer.data,
+            'summary': {
+                'total_components': total_components,
+                'total_quantity': total_quantity
+            }
+        })
+    
+    @action(detail=False, methods=['post'])
+    def bulk_create(self, request):
+        """
+        Bulk create BOM items
+        """
+        bom_items_data = request.data.get('bom_items', [])
+        
+        if not bom_items_data:
+            return Response(
+                {'error': 'No BOM items provided'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        created_items = []
+        errors = []
+        
+        with transaction.atomic():
+            for item_data in bom_items_data:
+                serializer = self.get_serializer(data=item_data)
+                if serializer.is_valid():
+                    bom_item = serializer.save(created_by=request.user)
+                    created_items.append(bom_item)
+                else:
+                    errors.append(serializer.errors)
+        
+        if errors:
+            return Response(
+                {'errors': errors},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        return Response({
+            'message': f'Successfully created {len(created_items)} BOM items',
+            'created_items': self.get_serializer(created_items, many=True).data
+        })
+    
+    @action(detail=False, methods=['post'])
+    def copy_bom(self, request):
+        """
+        Copy BOM from one product to another
+        """
+        source_product_id = request.data.get('source_product_id')
+        target_product_id = request.data.get('target_product_id')
+        
+        if not source_product_id or not target_product_id:
+            return Response(
+                {'error': 'Both source_product_id and target_product_id are required'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        try:
+            source_product = Product.objects.get(id=source_product_id)
+            target_product = Product.objects.get(id=target_product_id)
+        except Product.DoesNotExist:
+            return Response(
+                {'error': 'One or both products not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Get source BOM items
+        source_bom_items = ProductBOM.objects.filter(parent_product=source_product)
+        
+        if not source_bom_items.exists():
+            return Response(
+                {'error': 'No BOM found for source product'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Copy BOM items
+        copied_items = []
+        
+        with transaction.atomic():
+            # Remove existing BOM for target product
+            ProductBOM.objects.filter(parent_product=target_product).delete()
+            
+            # Create new BOM items
+            for bom_item in source_bom_items:
+                copied_item = ProductBOM.objects.create(
+                    parent_product=target_product,
+                    child_product=bom_item.child_product,
+                    quantity=bom_item.quantity,
+                    scrap_percentage=bom_item.scrap_percentage,
+                    operation_sequence=bom_item.operation_sequence,
+                    notes=bom_item.notes,
+                    created_by=request.user
+                )
+                copied_items.append(copied_item)
+        
+        return Response({
+            'message': f'Successfully copied {len(copied_items)} BOM items',
+            'copied_items': self.get_serializer(copied_items, many=True).data
         })

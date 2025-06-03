@@ -390,34 +390,35 @@ class Command(BaseCommand):
         
         for data in product_data:
             try:
-                product_code = data.get('product_code')
-                if not product_code:
+                # Use stock_code instead of product_code
+                stock_code = data.get('product_code')
+                if not stock_code:
                     continue
                 
                 # Sanitize product code if needed
-                original_code = product_code
-                product_code = self.sanitize_code(product_code)
-                if not product_code:
+                original_code = stock_code
+                stock_code = self.sanitize_code(stock_code)
+                if not stock_code:
                     self.stdout.write(self.style.WARNING(f"Could not sanitize product code: {original_code}"))
                     continue
                     
                 # Fix inventory_category based on product_code pattern
                 category_id = data.get('inventory_category_id')
                 # If product code starts with 03.0, it should be in PROSES category (ID: 2)
-                if product_code.startswith('03.0') and category_id not in ['1', '4', '5']:  # Not in HAMMADDE, KARANTINA, HURDA
+                if stock_code.startswith('03.0') and category_id not in ['1', '4', '5']:  # Not in HAMMADDE, KARANTINA, HURDA
                     # Force PROSES category (ID: 2) 
                     data['inventory_category_id'] = '2'
-                    self.stdout.write(f"Forced PROSES category for product: {product_code}")
+                    self.stdout.write(f"Forced PROSES category for product: {stock_code}")
                 
                 # Try to find existing product
                 try:
-                    product = Product.objects.get(product_code=product_code)
+                    product = Product.objects.get(stock_code=stock_code)
                     is_new = False
-                    self.stdout.write(f"Updating existing product: {product_code}")
+                    self.stdout.write(f"Updating existing product: {stock_code}")
                 except Product.DoesNotExist:
-                    product = Product(product_code=product_code)
+                    product = Product(stock_code=stock_code)
                     is_new = True
-                    self.stdout.write(f"Creating new product: {product_code}")
+                    self.stdout.write(f"Creating new product: {stock_code}")
                 
                 # Update fields
                 product.product_name = data.get('product_name', '')
@@ -441,7 +442,7 @@ class Command(BaseCommand):
                         product.inventory_category = category
                     except InventoryCategory.DoesNotExist:
                         self.stdout.write(self.style.WARNING(
-                            f"Category ID {category_id} not found for product {product_code}")
+                            f"Category ID {category_id} not found for product {stock_code}")
                         )
                 
                 # Set default unit of measure if not present
@@ -456,7 +457,7 @@ class Command(BaseCommand):
                         if default_unit:
                             product.unit_of_measure = default_unit
                             self.stdout.write(self.style.WARNING(
-                                f"Using default unit PCS for product {product_code}, as unit ID {unit_id} not found")
+                                f"Using default unit PCS for product {stock_code}, as unit ID {unit_id} not found")
                             )
                 elif not hasattr(product, 'unit_of_measure') or not product.unit_of_measure:
                     default_unit = UnitOfMeasure.objects.filter(unit_code='PCS').first()
@@ -487,14 +488,15 @@ class Command(BaseCommand):
         
         for data in material_data:
             try:
-                material_code = data.get('material_code')
-                if not material_code:
+                # Use stock_code instead of material_code
+                stock_code = data.get('material_code')
+                if not stock_code:
                     continue
                     
                 # Sanitize material code if needed
-                original_code = material_code
-                material_code = self.sanitize_code(material_code)
-                if not material_code:
+                original_code = stock_code
+                stock_code = self.sanitize_code(stock_code)
+                if not stock_code:
                     self.stdout.write(self.style.WARNING(f"Could not sanitize material code: {original_code}"))
                     continue
                 
@@ -503,13 +505,13 @@ class Command(BaseCommand):
                 
                 # Try to find existing material
                 try:
-                    material = RawMaterial.objects.get(material_code=material_code)
+                    material = RawMaterial.objects.get(stock_code=stock_code)
                     is_new = False
-                    self.stdout.write(f"Updating existing material: {material_code}")
+                    self.stdout.write(f"Updating existing material: {stock_code}")
                 except RawMaterial.DoesNotExist:
-                    material = RawMaterial(material_code=material_code)
+                    material = RawMaterial(stock_code=stock_code)
                     is_new = True
-                    self.stdout.write(f"Creating new material: {material_code}")
+                    self.stdout.write(f"Creating new material: {stock_code}")
                 
                 # Update fields
                 material.material_name = data.get('material_name', '')
@@ -542,7 +544,7 @@ class Command(BaseCommand):
                         material.inventory_category = category
                     except InventoryCategory.DoesNotExist:
                         self.stdout.write(self.style.WARNING(
-                            f"Category ID {category_id} not found for material {material_code}")
+                            f"Category ID {category_id} not found for material {stock_code}")
                         )
                 
                 # Handle unit
@@ -557,7 +559,7 @@ class Command(BaseCommand):
                         if default_unit:
                             material.unit = default_unit
                             self.stdout.write(self.style.WARNING(
-                                f"Using default unit for material {material_code}, as unit ID {unit_id} not found")
+                                f"Using default unit for material {stock_code}, as unit ID {unit_id} not found")
                             )
                 
                 # Save the material

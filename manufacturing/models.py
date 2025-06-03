@@ -45,10 +45,28 @@ class MachineStatus(models.TextChoices):
 
 
 class Machine(BaseModel):
-    machine_code = models.CharField(max_length=50, unique=True)
-    machine_type = models.CharField(max_length=50, choices=MachineType.choices)
-    brand = models.CharField(max_length=50, blank=True, null=True)
-    model = models.CharField(max_length=50, blank=True, null=True)
+    machine_code = models.CharField(
+        max_length=50, 
+        unique=True,
+        help_text="Unique identifier for the machine (e.g., CNC001, MILL02)"
+    )
+    machine_type = models.CharField(
+        max_length=50, 
+        choices=MachineType.choices,
+        help_text="Type of machine for production planning and scheduling"
+    )
+    brand = models.CharField(
+        max_length=50, 
+        blank=True, 
+        null=True,
+        help_text="Manufacturer brand of the machine"
+    )
+    model = models.CharField(
+        max_length=50, 
+        blank=True, 
+        null=True,
+        help_text="Model number or name from the manufacturer"
+    )
     axis_count = models.CharField(
         max_length=20,
         choices=[
@@ -60,37 +78,125 @@ class Machine(BaseModel):
             ('MULTI', 'Multi-Axis'),
         ],
         blank=True,
-        null=True
+        null=True,
+        help_text="Number of axes for machining operations and complexity planning"
     )
     internal_cooling = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        help_text="Internal cooling pressure in bars",
+        help_text="Internal cooling pressure in bars for high-speed machining",
         null=True,
         blank=True
     )
-    motor_power_kva = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
-    holder_type = models.CharField(max_length=50, blank=True, null=True)
-    spindle_motor_power_10_percent_kw = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
-    spindle_motor_power_30_percent_kw = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
-    power_hp = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
-    spindle_speed_rpm = models.IntegerField(blank=True, null=True)
-    tool_count = models.IntegerField(blank=True, null=True)
-    nc_control_unit = models.CharField(max_length=50, blank=True, null=True)
-    manufacturing_year = models.DateField(null=True, blank=True)
-    serial_number = models.CharField(max_length=100, unique=True, blank=True, null=True)
-    machine_weight_kg = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
-    max_part_size = models.CharField(max_length=50, blank=True, null=True)
-    description = models.TextField(blank=True, null=True)
-    status = models.CharField(max_length=20, choices=MachineStatus.choices, default=MachineStatus.AVAILABLE)
+    motor_power_kva = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        blank=True, 
+        null=True,
+        help_text="Motor power in KVA for electrical load planning"
+    )
+    holder_type = models.CharField(
+        max_length=50, 
+        blank=True, 
+        null=True,
+        help_text="Tool holder type for tool compatibility (e.g., BT40, HSK63)"
+    )
+    spindle_motor_power_10_percent_kw = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        blank=True, 
+        null=True,
+        help_text="Spindle motor power at 10% duty cycle in kW"
+    )
+    spindle_motor_power_30_percent_kw = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        blank=True, 
+        null=True,
+        help_text="Spindle motor power at 30% duty cycle in kW"
+    )
+    power_hp = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        blank=True, 
+        null=True,
+        help_text="Total machine power in horsepower"
+    )
+    spindle_speed_rpm = models.IntegerField(
+        blank=True, 
+        null=True,
+        help_text="Maximum spindle speed in RPM for cutting speed calculations"
+    )
+    tool_count = models.IntegerField(
+        blank=True, 
+        null=True,
+        help_text="Number of tool stations available for automatic tool changing"
+    )
+    nc_control_unit = models.CharField(
+        max_length=50, 
+        blank=True, 
+        null=True,
+        help_text="Numerical control unit brand and model (e.g., Fanuc 0i-MF)"
+    )
+    manufacturing_year = models.DateField(
+        null=True, 
+        blank=True,
+        help_text="Year the machine was manufactured for depreciation tracking"
+    )
+    serial_number = models.CharField(
+        max_length=100, 
+        unique=True, 
+        blank=True, 
+        null=True,
+        help_text="Manufacturer's serial number for warranty and service tracking"
+    )
+    machine_weight_kg = models.DecimalField(
+        max_digits=10, 
+        decimal_places=2, 
+        blank=True, 
+        null=True,
+        help_text="Machine weight in kilograms for floor loading calculations"
+    )
+    max_part_size = models.CharField(
+        max_length=50, 
+        blank=True, 
+        null=True,
+        help_text="Maximum workpiece dimensions (e.g., 500x400x300mm)"
+    )
+    description = models.TextField(
+        blank=True, 
+        null=True,
+        help_text="Additional notes and specifications about the machine"
+    )
+    status = models.CharField(
+        max_length=20, 
+        choices=MachineStatus.choices, 
+        default=MachineStatus.AVAILABLE,
+        help_text="Current operational status for production planning"
+    )
     maintenance_interval = models.IntegerField(
-        help_text="Days between required maintenance",
+        help_text="Days between required maintenance cycles",
         default=90
     )
-    last_maintenance_date = models.DateField(null=True, blank=True)
-    next_maintenance_date = models.DateField(null=True, blank=True)
-    maintenance_notes = models.TextField(blank=True, null=True)
-    is_active = models.BooleanField(default=True)
+    last_maintenance_date = models.DateField(
+        null=True, 
+        blank=True,
+        help_text="Date of the last completed maintenance"
+    )
+    next_maintenance_date = models.DateField(
+        null=True, 
+        blank=True,
+        help_text="Calculated date for next scheduled maintenance"
+    )
+    maintenance_notes = models.TextField(
+        blank=True, 
+        null=True,
+        help_text="Notes from maintenance activities and service history"
+    )
+    is_active = models.BooleanField(
+        default=True,
+        help_text="Whether this machine is available for production scheduling"
+    )
 
     class Meta:
         db_table = 'machines'
@@ -100,6 +206,11 @@ class Machine(BaseModel):
             models.Index(fields=['status']),
             models.Index(fields=['machine_type']),
             models.Index(fields=['next_maintenance_date']),
+            models.Index(fields=['is_active']),
+            models.Index(fields=['last_maintenance_date']),
+            models.Index(fields=['serial_number']),
+            models.Index(fields=['status', 'machine_type']),
+            models.Index(fields=['machine_type', 'is_active']),
         ]
 
     def __str__(self):
@@ -126,20 +237,77 @@ class Machine(BaseModel):
 
 
 class WorkOrder(BaseModel):
-    work_order_number = models.CharField(max_length=50, unique=True)
-    product = models.ForeignKey(Product, on_delete=models.PROTECT, related_name='work_orders')
-    quantity_ordered = models.IntegerField()
-    quantity_completed = models.IntegerField(default=0)
-    quantity_scrapped = models.IntegerField(default=0)
-    planned_start_date = models.DateTimeField()
-    planned_end_date = models.DateTimeField()
-    actual_start_date = models.DateTimeField(null=True, blank=True)
-    actual_end_date = models.DateTimeField(null=True, blank=True)
-    status = models.CharField(max_length=20, choices=WorkOrderStatus.choices, default=WorkOrderStatus.DRAFT)
-    priority = models.CharField(max_length=10, choices=WorkOrderPriority.choices, default=WorkOrderPriority.MEDIUM)
-    primary_machine = models.ForeignKey(Machine, on_delete=models.SET_NULL, null=True, blank=True, related_name='primary_work_orders')
-    sales_order = models.ForeignKey('sales.SalesOrder', on_delete=models.SET_NULL, null=True, blank=True, related_name='work_orders')
-    notes = models.TextField(blank=True, null=True)
+    work_order_number = models.CharField(
+        max_length=50, 
+        unique=True,
+        help_text="Unique work order identifier for tracking production"
+    )
+    product = models.ForeignKey(
+        Product, 
+        on_delete=models.PROTECT, 
+        related_name='work_orders',
+        help_text="Product to be manufactured in this work order"
+    )
+    quantity_ordered = models.IntegerField(
+        help_text="Total quantity to be produced"
+    )
+    quantity_completed = models.IntegerField(
+        default=0,
+        help_text="Quantity successfully completed so far"
+    )
+    quantity_scrapped = models.IntegerField(
+        default=0,
+        help_text="Quantity rejected due to quality issues"
+    )
+    planned_start_date = models.DateTimeField(
+        help_text="Scheduled start date and time for production"
+    )
+    planned_end_date = models.DateTimeField(
+        help_text="Scheduled completion date and time"
+    )
+    actual_start_date = models.DateTimeField(
+        null=True, 
+        blank=True,
+        help_text="Actual date and time production started"
+    )
+    actual_end_date = models.DateTimeField(
+        null=True, 
+        blank=True,
+        help_text="Actual date and time production completed"
+    )
+    status = models.CharField(
+        max_length=20, 
+        choices=WorkOrderStatus.choices, 
+        default=WorkOrderStatus.DRAFT,
+        help_text="Current status of the work order"
+    )
+    priority = models.CharField(
+        max_length=10, 
+        choices=WorkOrderPriority.choices, 
+        default=WorkOrderPriority.MEDIUM,
+        help_text="Priority level for production scheduling"
+    )
+    primary_machine = models.ForeignKey(
+        Machine, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='primary_work_orders',
+        help_text="Primary machine assigned for this work order"
+    )
+    sales_order = models.ForeignKey(
+        'sales.SalesOrder', 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True, 
+        related_name='work_orders',
+        help_text="Source sales order that triggered this production"
+    )
+    notes = models.TextField(
+        blank=True, 
+        null=True,
+        help_text="Additional instructions or notes for production"
+    )
     
     class Meta:
         db_table = 'work_orders'
@@ -149,6 +317,16 @@ class WorkOrder(BaseModel):
             models.Index(fields=['status']),
             models.Index(fields=['planned_start_date']),
             models.Index(fields=['primary_machine']),
+            models.Index(fields=['priority']),
+            models.Index(fields=['product']),
+            models.Index(fields=['planned_end_date']),
+            models.Index(fields=['actual_start_date']),
+            models.Index(fields=['actual_end_date']),
+            models.Index(fields=['sales_order']),
+            models.Index(fields=['status', 'priority']),
+            models.Index(fields=['status', 'planned_start_date']),
+            models.Index(fields=['product', 'status']),
+            models.Index(fields=['primary_machine', 'status']),
         ]
     
     def clean(self):
@@ -199,6 +377,14 @@ class WorkOrderOperation(BaseModel):
             models.Index(fields=['machine']),
             models.Index(fields=['status']),
             models.Index(fields=['planned_start_date']),
+            models.Index(fields=['work_order']),
+            models.Index(fields=['assigned_to']),
+            models.Index(fields=['planned_end_date']),
+            models.Index(fields=['actual_start_date']),
+            models.Index(fields=['actual_end_date']),
+            models.Index(fields=['work_order', 'status']),
+            models.Index(fields=['machine', 'status']),
+            models.Index(fields=['assigned_to', 'status']),
         ]
     
     def clean(self):
@@ -220,6 +406,14 @@ class MaterialAllocation(BaseModel):
     class Meta:
         db_table = 'material_allocations'
         unique_together = ['work_order', 'material']
+        indexes = [
+            models.Index(fields=['work_order']),
+            models.Index(fields=['material']),
+            models.Index(fields=['is_allocated']),
+            models.Index(fields=['allocation_date']),
+            models.Index(fields=['work_order', 'is_allocated']),
+            models.Index(fields=['material', 'is_allocated']),
+        ]
     
     def clean(self):
         if self.allocated_quantity > self.required_quantity:
@@ -248,6 +442,15 @@ class ProductionOutput(BaseModel):
     class Meta:
         db_table = 'production_outputs'
         ordering = ['-output_date']
+        indexes = [
+            models.Index(fields=['work_order']),
+            models.Index(fields=['operation']),
+            models.Index(fields=['operator']),
+            models.Index(fields=['output_date']),
+            models.Index(fields=['batch_number']),
+            models.Index(fields=['work_order', 'output_date']),
+            models.Index(fields=['operator', 'output_date']),
+        ]
     
     def __str__(self):
         return f"{self.work_order.work_order_number} - Output {self.quantity_good} units"
@@ -276,6 +479,11 @@ class MachineDowntime(BaseModel):
             models.Index(fields=['machine']),
             models.Index(fields=['start_time']),
             models.Index(fields=['category']),
+            models.Index(fields=['end_time']),
+            models.Index(fields=['reported_by']),
+            models.Index(fields=['machine', 'category']),
+            models.Index(fields=['machine', 'start_time']),
+            models.Index(fields=['category', 'start_time']),
         ]
     
     @property
@@ -312,6 +520,8 @@ class ManufacturingProcess(BaseModel):
         indexes = [
             models.Index(fields=['process_code']),
             models.Index(fields=['machine_type']),
+            models.Index(fields=['name']),
+            models.Index(fields=['machine_type', 'name']),
         ]
     
     def __str__(self):
@@ -340,9 +550,13 @@ class ProductWorkflow(BaseModel):
         unique_together = ['product', 'version']
         ordering = ['product', '-version']
         indexes = [
-            models.Index(fields=['product', 'status']),
-            models.Index(fields=['product', 'version']),
+            models.Index(fields=['product']),
+            models.Index(fields=['status']),
             models.Index(fields=['effective_date']),
+            models.Index(fields=['approved_by']),
+            models.Index(fields=['approval_date']),
+            models.Index(fields=['product', 'status']),
+            models.Index(fields=['status', 'effective_date']),
         ]
     
     def clean(self):
@@ -403,13 +617,17 @@ class ProcessConfig(BaseModel):
         unique_together = ['workflow', 'sequence_order', 'version']
         ordering = ['workflow', 'sequence_order', '-version']
         indexes = [
-            models.Index(fields=['workflow', 'sequence_order']),
-            models.Index(fields=['workflow', 'process']),
+            models.Index(fields=['workflow']),
+            models.Index(fields=['process']),
             models.Index(fields=['status']),
-            models.Index(fields=['version']),
+            models.Index(fields=['machine_type']),
+            models.Index(fields=['axis_count']),
             models.Index(fields=['tool']),
-            models.Index(fields=['control_gauge']),
             models.Index(fields=['fixture']),
+            models.Index(fields=['control_gauge']),
+            models.Index(fields=['workflow', 'status']),
+            models.Index(fields=['process', 'status']),
+            models.Index(fields=['machine_type', 'axis_count']),
         ]
     
     def clean(self):
@@ -458,9 +676,14 @@ class Fixture(BaseModel):
         db_table = 'fixture'
         ordering = ['code']
         indexes = [
-            models.Index(fields=['name']),
+            models.Index(fields=['code']),
             models.Index(fields=['status']),
+            models.Index(fields=['next_check_date']),
+            models.Index(fields=['fixture_type']),
             models.Index(fields=['location']),
+            models.Index(fields=['last_checked']),
+            models.Index(fields=['status', 'fixture_type']),
+            models.Index(fields=['status', 'next_check_date']),
         ]
     
     def save(self, *args, **kwargs):
@@ -496,10 +719,14 @@ class ControlGauge(BaseModel):
         db_table = 'control_gauge'
         ordering = ['code']
         indexes = [
-            models.Index(fields=['stock_name']),
+            models.Index(fields=['code']),
             models.Index(fields=['status']),
-            models.Index(fields=['calibration_date']),
             models.Index(fields=['upcoming_calibration_date']),
+            models.Index(fields=['calibration_date']),
+            models.Index(fields=['manufacturer']),
+            models.Index(fields=['stock_name']),
+            models.Index(fields=['status', 'upcoming_calibration_date']),
+            models.Index(fields=['manufacturer', 'status']),
         ]
     
     def save(self, *args, **kwargs):
@@ -534,13 +761,19 @@ class SubWorkOrder(BaseModel):
         db_table = 'sub_work_order'
         ordering = ['planned_start']
         indexes = [
-            models.Index(fields=['status']),
             models.Index(fields=['parent_work_order']),
-            models.Index(fields=['bom_component']),
+            models.Index(fields=['status']),
             models.Index(fields=['planned_start']),
-            models.Index(fields=['planned_end']),
-            models.Index(fields=['assigned_to']),
             models.Index(fields=['target_category']),
+            models.Index(fields=['work_order_number']),
+            models.Index(fields=['assigned_to']),
+            models.Index(fields=['planned_end']),
+            models.Index(fields=['actual_start']),
+            models.Index(fields=['actual_end']),
+            models.Index(fields=['bom_component']),
+            models.Index(fields=['parent_work_order', 'status']),
+            models.Index(fields=['assigned_to', 'status']),
+            models.Index(fields=['target_category', 'status']),
         ]
     
     def save(self, *args, **kwargs):
@@ -576,3 +809,117 @@ class SubWorkOrder(BaseModel):
     
     def __str__(self):
         return f"Sub-WO: {self.work_order_number} - {self.completion_percentage}% complete"
+
+
+# Audit Log Model for Manufacturing Operations
+class ManufacturingAuditLog(BaseModel):
+    """
+    Database model to store manufacturing operation audit trail
+    """
+    LOG_LEVELS = [
+        ('INFO', 'Info'),
+        ('WARNING', 'Warning'),
+        ('ERROR', 'Error'),
+        ('CRITICAL', 'Critical'),
+    ]
+    
+    ACTION_TYPES = [
+        ('WORK_ORDER_CREATE', 'Work Order Created'),
+        ('WORK_ORDER_UPDATE', 'Work Order Updated'),
+        ('WORK_ORDER_START', 'Work Order Started'),
+        ('WORK_ORDER_COMPLETE', 'Work Order Completed'),
+        ('WORK_ORDER_CANCEL', 'Work Order Cancelled'),
+        ('MATERIAL_ALLOCATE', 'Materials Allocated'),
+        ('MATERIAL_ISSUE', 'Materials Issued'),
+        ('PRODUCTION_RECORD', 'Production Output Recorded'),
+        ('MACHINE_STATUS_CHANGE', 'Machine Status Changed'),
+        ('MACHINE_MAINTENANCE', 'Machine Maintenance Recorded'),
+        ('OPERATION_START', 'Operation Started'),
+        ('OPERATION_COMPLETE', 'Operation Completed'),
+        ('DOWNTIME_RECORD', 'Downtime Recorded'),
+        ('API_REQUEST', 'API Request'),
+        ('BUSINESS_RULE_VIOLATION', 'Business Rule Violation'),
+        ('SYSTEM_ERROR', 'System Error'),
+    ]
+    
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, 
+        on_delete=models.SET_NULL, 
+        null=True, 
+        blank=True,
+        help_text="User who performed the action"
+    )
+    log_level = models.CharField(
+        max_length=10, 
+        choices=LOG_LEVELS, 
+        default='INFO',
+        help_text="Severity level of the log entry"
+    )
+    action_type = models.CharField(
+        max_length=30, 
+        choices=ACTION_TYPES,
+        help_text="Type of action performed"
+    )
+    entity_type = models.CharField(
+        max_length=50, 
+        null=True, 
+        blank=True,
+        help_text="Type of entity affected (WorkOrder, Machine, etc.)"
+    )
+    entity_id = models.PositiveIntegerField(
+        null=True, 
+        blank=True,
+        help_text="ID of the affected entity"
+    )
+    message = models.TextField(
+        help_text="Human-readable log message"
+    )
+    details = models.JSONField(
+        null=True, 
+        blank=True,
+        help_text="Additional structured data"
+    )
+    ip_address = models.GenericIPAddressField(
+        null=True, 
+        blank=True,
+        help_text="IP address of the user"
+    )
+    user_agent = models.TextField(
+        null=True, 
+        blank=True,
+        help_text="User agent string"
+    )
+    
+    class Meta:
+        db_table = 'manufacturing_audit_log'
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user']),
+            models.Index(fields=['log_level']),
+            models.Index(fields=['action_type']),
+            models.Index(fields=['entity_type']),
+            models.Index(fields=['entity_id']),
+            models.Index(fields=['created_at']),
+            models.Index(fields=['user', 'action_type']),
+            models.Index(fields=['entity_type', 'entity_id']),
+            models.Index(fields=['log_level', 'created_at']),
+        ]
+    
+    def __str__(self):
+        return f"{self.get_log_level_display()}: {self.get_action_type_display()} by {self.user or 'System'}"
+    
+    @classmethod
+    def log_action(cls, user, action_type, message, log_level='INFO', entity_type=None, 
+                   entity_id=None, details=None, ip_address=None, user_agent=None):
+        """Create a new audit log entry"""
+        return cls.objects.create(
+            user=user,
+            log_level=log_level,
+            action_type=action_type,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            message=message,
+            details=details,
+            ip_address=ip_address,
+            user_agent=user_agent
+        )
