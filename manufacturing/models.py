@@ -590,7 +590,7 @@ class ProcessConfigStatus(models.TextChoices):
 class ProcessConfig(BaseModel):
     workflow = models.ForeignKey(ProductWorkflow, on_delete=models.CASCADE, related_name='process_configs')
     process = models.ForeignKey(ManufacturingProcess, on_delete=models.PROTECT)
-    sequence_order = models.IntegerField()
+    sequence_order = models.PositiveIntegerField()
     version = models.CharField(max_length=20, default='1.0')
     status = models.CharField(max_length=20, choices=ProcessConfigStatus.choices, default=ProcessConfigStatus.DRAFT)
     
@@ -606,9 +606,8 @@ class ProcessConfig(BaseModel):
     # Time estimates
     setup_time = models.IntegerField(help_text="Setup time in minutes", default=0)
     cycle_time = models.IntegerField(help_text="Cycle time per unit in seconds", default=0)
+    connecting_count = models.IntegerField(help_text="Connecting and count time in minutes", default=0)
     
-    # Process parameters
-    parameters = models.JSONField(null=True, blank=True)
     quality_requirements = models.JSONField(null=True, blank=True)
     instructions = models.TextField(blank=True, null=True)
     
@@ -646,6 +645,15 @@ class ProcessConfig(BaseModel):
                 active_configs.update(status=ProcessConfigStatus.OBSOLETE)
     
     def save(self, *args, **kwargs):
+        # Auto-increment sequence_order if not provided for new instances
+        if not self.pk and not self.sequence_order:
+            max_sequence = ProcessConfig.objects.filter(
+                workflow=self.workflow
+            ).aggregate(
+                max_seq=models.Max('sequence_order')
+            )['max_seq']
+            self.sequence_order = (max_sequence or 0) + 1
+        
         self.clean()  # Run validation
         super().save(*args, **kwargs)
     
