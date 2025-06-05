@@ -21,7 +21,7 @@ class EquipmentViewSet(viewsets.ModelViewSet):
     queryset = Equipment.objects.all()
     serializer_class = EquipmentSerializer
     permission_classes = [IsAuthenticated, HasRolePermission]
-    filterset_fields = ['work_center', 'status']
+    filterset_fields = ['status']
     search_fields = ['code', 'name', 'serial_number']
     ordering = ['code']
     

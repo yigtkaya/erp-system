@@ -103,25 +103,27 @@ def check_overdue_maintenance():
 @shared_task
 def calculate_equipment_uptime():
     """Calculate equipment uptime statistics"""
-    from manufacturing.models import MachineDowntime
+    # Note: Equipment uptime calculation should be based on maintenance records
+    # not machine downtime records, as these are separate concerns
     
-    equipment_list = Equipment.objects.filter(is_active=True)
+    equipment_list = Equipment.objects.filter(status='ACTIVE')
     stats = {}
     
     for equipment in equipment_list:
-        # Calculate downtime for last 30 days
+        # Calculate uptime based on maintenance downtime for last 30 days
         start_date = timezone.now() - timedelta(days=30)
         
-        downtimes = MachineDowntime.objects.filter(
-            work_center__equipment=equipment,
-            start_time__gte=start_date
+        # Get maintenance work orders that caused downtime
+        maintenance_downtimes = MaintenanceWorkOrder.objects.filter(
+            equipment=equipment,
+            actual_start_date__gte=start_date,
+            status='COMPLETED'
         )
         
         total_downtime_hours = 0
-        for downtime in downtimes:
-            if downtime.end_time:
-                duration = (downtime.end_time - downtime.start_time).total_seconds() / 3600
-                total_downtime_hours += duration
+        for wo in maintenance_downtimes:
+            if wo.total_downtime_hours:
+                total_downtime_hours += float(wo.total_downtime_hours)
         
         # Assuming 24/7 operation
         total_hours = 30 * 24

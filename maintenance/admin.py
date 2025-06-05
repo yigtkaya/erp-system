@@ -9,9 +9,9 @@ from .models import (
 
 @admin.register(Equipment)
 class EquipmentAdmin(admin.ModelAdmin):
-    list_display = ('code', 'name', 'work_center', 'manufacturer', 'is_active')
+    list_display = ('code', 'name', 'manufacturer', 'is_active')
     search_fields = ('code', 'name', 'serial_number')
-    list_filter = ('work_center', 'is_active')
+    list_filter = ('is_active',)
 
 @admin.register(MaintenancePlan)
 class MaintenancePlanAdmin(admin.ModelAdmin):
