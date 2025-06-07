@@ -210,16 +210,15 @@ class ProcessConfigSerializer(serializers.ModelSerializer):
     product_code = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     axis_count_display = serializers.CharField(source='get_axis_count_display', read_only=True)
-    machine_type_display = serializers.CharField(source='get_machine_type_display', read_only=True)
     
     class Meta:
         model = ProcessConfig
         fields = [
             'id', 'workflow', 'process', 'sequence_order', 'version', 'status',
-            'machine_type', 'axis_count', 'tool', 'fixture', 'control_gauge',
+            'axis_count', 'tool', 'fixture', 'control_gauge',
             'setup_time', 'cycle_time', 'connecting_count', 'quality_requirements',
             'instructions', 'process_name', 'workflow_version', 'product_code',
-            'status_display', 'axis_count_display', 'machine_type_display',
+            'status_display', 'axis_count_display',
             'created_at', 'updated_at'
         ]
         read_only_fields = ['created_at', 'updated_at', 'sequence_order']
@@ -234,16 +233,6 @@ class ProcessConfigSerializer(serializers.ModelSerializer):
         for field in time_fields:
             if field in data and data[field] < 0:
                 raise serializers.ValidationError(f"{field} must be non-negative")
-        
-        # Validate machine type and axis count compatibility
-        machine_type = data.get('machine_type')
-        axis_count = data.get('axis_count')
-        
-        if machine_type and axis_count:
-            if machine_type in ['CNC_MILLING', 'CNC_LATHE'] and axis_count == 'MULTI':
-                raise serializers.ValidationError("CNC machines should have specific axis count, not MULTI")
-            elif machine_type in ['ASSEMBLY', 'INSPECTION'] and axis_count not in [None, '']:
-                raise serializers.ValidationError(f"{machine_type} machines typically don't require axis count specification")
         
         return data
 

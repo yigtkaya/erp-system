@@ -63,7 +63,7 @@ class ProductWorkflowAdmin(admin.ModelAdmin):
 class ProcessConfigAdmin(admin.ModelAdmin):
     list_display = ('workflow', 'process', 'sequence_order', 'version', 'status', 'setup_time', 'cycle_time', 'connecting_count')
     search_fields = ('workflow__product__product_code', 'process__name')
-    list_filter = ('status', 'axis_count', 'machine_type')
+    list_filter = ('status', 'axis_count')
     ordering = ('workflow', 'sequence_order')
     
     fieldsets = (
@@ -71,7 +71,7 @@ class ProcessConfigAdmin(admin.ModelAdmin):
             'fields': ('workflow', 'process', 'sequence_order', 'version', 'status')
         }),
         ('Machine Requirements', {
-            'fields': ('machine_type', 'axis_count', 'tool', 'fixture', 'control_gauge')
+            'fields': ('axis_count', 'tool', 'fixture', 'control_gauge')
         }),
         ('Time Parameters', {
             'fields': ('setup_time', 'cycle_time', 'connecting_count')

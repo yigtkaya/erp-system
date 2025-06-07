@@ -401,7 +401,6 @@ Content-Type: application/json
       "workflow_id": 78,
       "process_id": 12,
       "sequence_order": 1,
-      "machine_type": "CNC_MILLING",
       "setup_time": 120,
       "cycle_time": 300,
       "connecting_count": 15,
@@ -413,7 +412,6 @@ Content-Type: application/json
       "workflow_id": 78,
       "process_id": 13,
       "sequence_order": 2,
-      "machine_type": "ASSEMBLY",
       "setup_time": 60,
       "cycle_time": 180,
       "connecting_count": 10
@@ -531,10 +529,10 @@ INSERT INTO product_workflow (id, product_id, version, status, effective_date, c
 ### Insert Process Configurations
 
 ```sql
-INSERT INTO process_config (id, workflow_id, process_id, sequence_order, version, status, machine_type, axis_count, setup_time, cycle_time, connecting_count, created_at, updated_at) VALUES
-(234, 78, 12, 1, '1.0', 'ACTIVE', 'CNC_MILLING', 'AXIS_3', 120, 300, 15, NOW(), NOW()),
-(235, 78, 13, 2, '1.0', 'ACTIVE', 'ASSEMBLY', NULL, 60, 180, 10, NOW(), NOW()),
-(236, 78, 14, 3, '1.0', 'ACTIVE', 'INSPECTION', NULL, 30, 120, 5, NOW(), NOW());
+INSERT INTO process_config (id, workflow_id, process_id, sequence_order, version, status, axis_count, setup_time, cycle_time, connecting_count, created_at, updated_at) VALUES
+(234, 78, 12, 1, '1.0', 'ACTIVE', 'AXIS_3', 120, 300, 15, NOW(), NOW()),
+(235, 78, 13, 2, '1.0', 'ACTIVE', NULL, 60, 180, 10, NOW(), NOW()),
+(236, 78, 14, 3, '1.0', 'ACTIVE', NULL, 30, 120, 5, NOW(), NOW());
 ```
 
 ## Frontend Integration Examples

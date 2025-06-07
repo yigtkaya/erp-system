@@ -595,7 +595,6 @@ class ProcessConfig(BaseModel):
     status = models.CharField(max_length=20, choices=ProcessConfigStatus.choices, default=ProcessConfigStatus.DRAFT)
     
     # Machine requirements
-    machine_type = models.CharField(max_length=50, blank=True, null=True)
     axis_count = models.CharField(max_length=10, choices=AxisCount.choices, blank=True, null=True)
     
     # Tool and fixture requirements
@@ -619,14 +618,12 @@ class ProcessConfig(BaseModel):
             models.Index(fields=['workflow']),
             models.Index(fields=['process']),
             models.Index(fields=['status']),
-            models.Index(fields=['machine_type']),
             models.Index(fields=['axis_count']),
             models.Index(fields=['tool']),
             models.Index(fields=['fixture']),
             models.Index(fields=['control_gauge']),
             models.Index(fields=['workflow', 'status']),
             models.Index(fields=['process', 'status']),
-            models.Index(fields=['machine_type', 'axis_count']),
         ]
     
     def clean(self):
